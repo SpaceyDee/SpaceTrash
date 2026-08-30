@@ -158,6 +158,17 @@ export function runningScan(db: Database.Database): ScanJob | null {
   return row ? rowToScan(row) : null;
 }
 
+export function abandonOpenScans(db: Database.Database, reason: string): number {
+  const info = db
+    .prepare(
+      `UPDATE scans
+       SET status = 'cancelled', finished_at = ?, error = ?, current_path = ''
+       WHERE status IN ('queued', 'running')`,
+    )
+    .run(Date.now(), reason);
+  return info.changes;
+}
+
 export function insertFinding(db: Database.Database, finding: Finding): void {
   db.prepare(
     `INSERT INTO findings (id, scan_id, title, class, bytes, file_count, confidence, why, paths_json, action, risk, status)

@@ -1,7 +1,7 @@
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { startServer } from "./server.ts";
 
-export { buildApp, startServer } from "./server.ts";
+export { buildApp, startServer, stopServer } from "./server.ts";
 
 function isDirectRun(): boolean {
   if (!process.argv[1]) return false;

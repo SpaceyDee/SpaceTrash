@@ -13,6 +13,8 @@ const host = process.env.SPACETRASH_HOST ?? "127.0.0.1";
 
 let apiChild = null;
 let apiUrl = `http://${host}:${defaultPort}`;
+let ownedApi = false;
+let quitting = false;
 
 function npmCmd() {
   return process.platform === "win32" ? "npm.cmd" : "npm";
@@ -41,6 +43,7 @@ async function startInProcess(port) {
   const require = createRequire(import.meta.url);
   const mod = require(bundled);
   await mod.startServer({ port, host, rendererDir: rendererDir() });
+  ownedApi = true;
 }
 
 async function startDevChild(port) {
@@ -51,6 +54,7 @@ async function startDevChild(port) {
     stdio: "inherit",
     env: { ...process.env, SPACETRASH_PORT: String(port), SPACETRASH_HOST: host },
   });
+  ownedApi = true;
 }
 
 async function ensureApi() {
@@ -137,10 +141,31 @@ if (!gotLock) {
   });
 }
 
+async function cleanShutdown() {
+  if (ownedApi) {
+    try {
+      const bundled = join(desktopRoot, "build/server.cjs");
+      if (existsSync(bundled)) {
+        const require = createRequire(import.meta.url);
+        const mod = require(bundled);
+        if (typeof mod.stopServer === "function") await mod.stopServer();
+      } else {
+        await fetch(`${apiUrl}/api/shutdown`, { method: "POST" });
+      }
+    } catch {
+      // already gone
+    }
+  }
+  if (apiChild && !apiChild.killed) apiChild.kill();
+}
+
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => {
-  if (apiChild && !apiChild.killed) apiChild.kill();
+app.on("before-quit", (event) => {
+  if (quitting) return;
+  event.preventDefault();
+  quitting = true;
+  void cleanShutdown().finally(() => app.quit());
 });

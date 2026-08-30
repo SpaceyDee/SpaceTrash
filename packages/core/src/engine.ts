@@ -12,7 +12,9 @@ import type {
 } from "./types.ts";
 import { VERSION, dataDir, ensureDataDir } from "./paths.ts";
 import {
+  abandonOpenScans,
   classifiedBytes,
+  closeDb,
   getFinding,
   getScan,
   insertScan,
@@ -35,6 +37,12 @@ export function createEngine() {
   ensureDataDir();
   const db = openDb();
   const cancel = new Set<string>();
+  let stopped = false;
+
+  const abandoned = abandonOpenScans(db, "Interrupted when SpaceTrash last exited");
+  if (abandoned > 0) {
+    console.log(`[spacetrash] cleared ${abandoned} leftover scan(s) from a previous run`);
+  }
 
   function status(): EngineStatus {
     const active = runningScan(db);
@@ -54,6 +62,7 @@ export function createEngine() {
   }
 
   function startScan(input: Partial<ScanOptions> & { roots?: string[] }): ScanJob {
+    if (stopped) throw new Error("SpaceTrash is shutting down");
     const existing = runningScan(db);
     if (existing) {
       throw new Error(`A scan is already ${existing.status} (${existing.id})`);
@@ -110,25 +119,29 @@ export function createEngine() {
         () => cancel.has(id),
       );
 
-      if (cancel.has(id)) {
-        const live = getScan(db, id)!;
-        live.status = "cancelled";
-        live.finishedAt = Date.now();
-        live.progress = walked.filesSeen > 0 ? 1 : 0;
-        updateScan(db, live);
+      const afterWalk = getScan(db, id);
+      if (!afterWalk || afterWalk.status === "cancelled" || cancel.has(id) || stopped) {
+        const live = afterWalk ?? getScan(db, id);
+        if (live && live.status !== "cancelled") {
+          live.status = "cancelled";
+          live.finishedAt = Date.now();
+          live.error = live.error ?? "Cancelled";
+          live.progress = walked.filesSeen > 0 ? 1 : 0;
+          updateScan(db, live);
+        }
         return;
       }
 
-      const live = getScan(db, id)!;
-      live.filesSeen = walked.filesSeen;
-      live.bytesSeen = walked.bytesSeen;
-      live.progress = 0.9;
-      live.currentPath = "classifying";
-      updateScan(db, live);
+      afterWalk.filesSeen = walked.filesSeen;
+      afterWalk.bytesSeen = walked.bytesSeen;
+      afterWalk.progress = 0.9;
+      afterWalk.currentPath = "classifying";
+      updateScan(db, afterWalk);
 
       classifyScan(db, id, { ...options, roots });
 
       const done = getScan(db, id)!;
+      if (done.status === "cancelled" || cancel.has(id) || stopped) return;
       done.status = "complete";
       done.finishedAt = Date.now();
       done.progress = 1;
@@ -242,11 +255,27 @@ export function createEngine() {
     return { findingId: f.id, action: f.action, recycled, failed };
   }
 
-  function cancelScan(id: string): ScanJob | null {
+  function cancelScan(id: string, reason = "Cancelled"): ScanJob | null {
     const job = getScan(db, id);
     if (!job) return null;
-    if (job.status === "running" || job.status === "queued") cancel.add(id);
-    return job;
+    if (job.status === "running" || job.status === "queued") {
+      cancel.add(id);
+      job.status = "cancelled";
+      job.finishedAt = Date.now();
+      job.error = reason;
+      job.currentPath = "";
+      updateScan(db, job);
+    }
+    return getScan(db, id);
+  }
+
+  function shutdown(reason = "SpaceTrash shut down"): void {
+    if (stopped) return;
+    stopped = true;
+    const open = runningScan(db);
+    if (open) cancelScan(open.id, reason);
+    abandonOpenScans(db, reason);
+    closeDb();
   }
 
   return {
@@ -260,13 +289,43 @@ export function createEngine() {
     preview,
     apply,
     cancelScan,
+    shutdown,
   };
 }
 
 export type Engine = ReturnType<typeof createEngine>;
 
 let shared: Engine | null = null;
+let hooksAttached = false;
+
 export function getEngine(): Engine {
-  if (!shared) shared = createEngine();
+  if (!shared) {
+    shared = createEngine();
+    if (!hooksAttached) {
+      hooksAttached = true;
+      const stop = () => {
+        stopEngine("SpaceTrash process exiting");
+      };
+      process.once("SIGINT", () => {
+        stop();
+        process.exit(0);
+      });
+      process.once("SIGTERM", () => {
+        stop();
+        process.exit(0);
+      });
+      process.once("exit", stop);
+    }
+  }
   return shared;
+}
+
+export function stopEngine(reason = "SpaceTrash shut down"): void {
+  if (!shared) return;
+  try {
+    shared.shutdown(reason);
+  } catch {
+    // ignore
+  }
+  shared = null;
 }

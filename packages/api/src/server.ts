@@ -2,7 +2,8 @@ import express from "express";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getEngine, type FindingClass } from "@spacetrash/core";
+import type { Server } from "node:http";
+import { getEngine, stopEngine, type FindingClass } from "@spacetrash/core";
 
 function moduleDir(): string {
   try {
@@ -91,6 +92,13 @@ export function buildApp(opts?: { rendererDir?: string }) {
     }
   });
 
+  app.post("/api/shutdown", async (_req, res) => {
+    res.json({ ok: true });
+    setImmediate(() => {
+      void stopServer();
+    });
+  });
+
   const rendererCandidates = [
     opts?.rendererDir,
     join(here, "../../desktop/renderer"),
@@ -108,15 +116,29 @@ export function buildApp(opts?: { rendererDir?: string }) {
   return app;
 }
 
+let httpServer: Server | null = null;
+
 export async function startServer(opts?: { port?: number; host?: string; rendererDir?: string }) {
   const port = opts?.port ?? Number(process.env.SPACETRASH_PORT ?? 3847);
   const host = opts?.host ?? process.env.SPACETRASH_HOST ?? "127.0.0.1";
   const app = buildApp({ rendererDir: opts?.rendererDir });
   return new Promise<{ port: number; host: string }>((resolve, reject) => {
     const server = app.listen(port, host, () => {
+      httpServer = server;
       console.log(`SpaceTrash API on http://${host}:${port}`);
       resolve({ port, host });
     });
     server.on("error", reject);
+  });
+}
+
+export async function stopServer(): Promise<void> {
+  stopEngine("SpaceTrash shut down");
+  const server = httpServer;
+  httpServer = null;
+  if (!server) return;
+  await new Promise<void>((resolve) => {
+    server.close(() => resolve());
+    setTimeout(resolve, 1500);
   });
 }

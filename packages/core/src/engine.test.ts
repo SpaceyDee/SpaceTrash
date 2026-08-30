@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile, utimes } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, before, describe, it } from "node:test";
-import { closeDb } from "./db.ts";
+import { closeDb, insertScan, openDb } from "./db.ts";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const data = join(repoRoot, "fixtures", "safe-scan-generated", "data");
@@ -78,5 +78,27 @@ describe("engine fixture scan", () => {
 
     const notes = findings.flatMap((f) => f.paths).some((p) => p.toLowerCase().endsWith("notes.txt"));
     assert.equal(notes, false, "keep file should not be in findings");
+  });
+
+  it("marks leftover running scans cancelled on startup", () => {
+    closeDb();
+    const db = openDb();
+    insertScan(db, {
+      id: "scan_stale_shutdown",
+      status: "running",
+      roots: [fixture],
+      filesSeen: 12,
+      bytesSeen: 99,
+      startedAt: Date.now() - 60_000,
+      progress: 0.4,
+      currentPath: "C:\\somewhere",
+    });
+    closeDb();
+    const engine = createEngine();
+    assert.equal(engine.status().activeScanId, null);
+    const stale = engine.getScan("scan_stale_shutdown");
+    assert.ok(stale);
+    assert.equal(stale.status, "cancelled");
+    assert.match(stale.error ?? "", /exited|Interrupted/i);
   });
 });
