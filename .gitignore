@@ -14,3 +14,5 @@ Thumbs.db
 coverage/
 fixtures/safe-scan-generated/
 packages/desktop/build/
+scripts/*.ppm
+scripts/*.png
