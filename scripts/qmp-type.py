@@ -116,15 +116,17 @@ def main():
         q = Qmp(QMP)
         q.sendkey("ret")
         time.sleep(0.2)
-        q.sendkey("esc")
+        q.sendkey("kp_enter")
         q.s.close()
-        print("enter/esc sent")
+        print("enter sent")
         return
 
     commands = {
         "copyrun": r"cmd /c copy /y D:\SpaceTrash-Portable-0.1.0.exe %TEMP%\st.exe",
         "start": r"%TEMP%\st.exe",
         "http": r"http://192.168.0.249:8766/SpaceTrash-Portable-0.1.0.exe",
+        "downloads": r"%USERPROFILE%\Downloads\SpaceTrash-Portable-0.1.0.exe",
+        "runme": r"D:\RUN-ME.bat",
     }
     text = commands.get(action, action)
     q = Qmp(QMP)
