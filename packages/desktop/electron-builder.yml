@@ -1,0 +1,47 @@
+appId: com.spacetrash.app
+productName: SpaceTrash
+copyright: Copyright © SpaceTrash
+artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
+asar: true
+asarUnpack:
+  - "**/*.node"
+  - "**/better-sqlite3/**"
+directories:
+  output: ../../dist/desktop
+  buildResources: buildResources
+files:
+  - src/main.js
+  - build/server.cjs
+  - renderer/**/*
+  - package.json
+extraMetadata:
+  name: SpaceTrash
+  main: src/main.js
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  signAndEditExecutable: false
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: SpaceTrash
+  uninstallDisplayName: SpaceTrash
+  installerLanguages:
+    - en_US
+  deleteAppDataOnUninstall: false
+  artifactName: "${productName}-Setup-${version}.${ext}"
+portable:
+  artifactName: "${productName}-Portable-${version}.${ext}"
+electronVersion: 34.5.8
+npmRebuild: true
+electronLanguages:
+  - en-US

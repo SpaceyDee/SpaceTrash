@@ -4,12 +4,28 @@ Windows disk optimiser: scan drives, classify what is removable / bloat / archiv
 
 Independent of [Pulsar](https://github.com). Pulsar (or Cursor, or any MCP client) can attach it as a tool. See [docs/PULSAR.md](docs/PULSAR.md).
 
-## Requirements
+## Installer (separate Windows program)
+
+Build a normal Windows installer from this repo. The result does **not** need Node or npm on the target PC.
+
+```bash
+npm install
+npm run dist
+```
+
+Artifacts land in `dist/desktop/`:
+
+- `SpaceTrash-Setup-0.1.0.exe` — NSIS installer (Start Menu + desktop shortcut, uninstall from Settings)
+- `SpaceTrash-Portable-0.1.0.exe` — run without installing
+
+The installed app is SpaceTrash.exe. It starts its own local engine on `127.0.0.1` and opens the UI. Pulsar can still attach over MCP while the app is running.
+
+## Requirements (from source)
 
 - Windows
 - Node 22+
 
-## Quick start
+## Quick start (from source)
 
 ```bash
 npm install

@@ -13,3 +13,4 @@ Thumbs.db
 .idea/
 coverage/
 fixtures/safe-scan-generated/
+packages/desktop/build/

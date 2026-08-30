@@ -14,6 +14,7 @@
     "api": "npm run start -w @spacetrash/api",
     "mcp": "npm run start -w @spacetrash/mcp",
     "desktop": "npm run start -w @spacetrash/desktop",
+    "dist": "npm run dist -w @spacetrash/desktop && npm rebuild better-sqlite3",
     "cli": "npm run cli -w @spacetrash/core",
     "test": "npm run test -w @spacetrash/core"
   },
