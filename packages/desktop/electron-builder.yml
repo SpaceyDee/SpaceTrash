@@ -41,6 +41,30 @@ nsis:
   artifactName: "${productName}-Setup-${version}.${ext}"
 portable:
   artifactName: "${productName}-Portable-${version}.${ext}"
+mac:
+  category: public.app-category.utilities
+  identity: null
+  target:
+    - target: dmg
+      arch:
+        - universal
+    - target: zip
+      arch:
+        - universal
+  artifactName: "${productName}-${version}-mac-${arch}.${ext}"
+dmg:
+  artifactName: "${productName}-${version}-mac-${arch}.${ext}"
+linux:
+  category: Utility
+  synopsis: Disk optimiser — scan, classify, confirm-to-act
+  target:
+    - AppImage
+    - deb
+  artifactName: "${productName}-${version}-linux-${arch}.${ext}"
+appImage:
+  artifactName: "${productName}-${version}-linux-${arch}.AppImage"
+deb:
+  artifactName: "${productName}-${version}-linux-${arch}.deb"
 electronVersion: 34.5.8
 npmRebuild: true
 electronLanguages:

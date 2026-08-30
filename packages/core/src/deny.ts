@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { normalizePath, pathEquals, pathIsUnder } from "./paths.ts";
+import { pathEquals, pathIsUnder, toCanonical } from "./paths.ts";
 
 const SKIP_DIR_NAMES = new Set([
   "$recycle.bin",
@@ -9,6 +9,10 @@ const SKIP_DIR_NAMES = new Set([
   "efi",
   "$windows.~bt",
   "$windows.~ws",
+  "proc",
+  "sys",
+  "dev",
+  ".trash",
 ]);
 
 function windowsRoots(): string[] {
@@ -31,22 +35,61 @@ function windowsRoots(): string[] {
   ];
 }
 
+function unixActionRoots(): string[] {
+  const roots = [
+    "/bin",
+    "/sbin",
+    "/usr",
+    "/etc",
+    "/lib",
+    "/lib64",
+    "/boot",
+    "/dev",
+    "/proc",
+    "/sys",
+    "/run",
+    "/System",
+    "/Library",
+    "/private/var/vm",
+  ];
+  if (process.platform === "darwin") {
+    roots.push("/System/Volumes");
+  }
+  return roots;
+}
+
 function protectedFileNames(): string[] {
   return ["pagefile.sys", "hiberfil.sys", "swapfile.sys", "ntuser.dat", "ntuser.dat.log1", "ntuser.dat.log2"];
+}
+
+function looksWindows(p: string): boolean {
+  return /^[a-z]:/i.test(p) || p.includes("\\");
+}
+
+function looksUnix(p: string): boolean {
+  return p.startsWith("/") || p.startsWith("~/");
 }
 
 /** Roots we do not walk at all. */
 export function isDeniedForScan(fullPath: string, name?: string): boolean {
   const n = (name ?? fullPath.split(/[/\\]/).pop() ?? "").toLowerCase();
   if (SKIP_DIR_NAMES.has(n)) return true;
-  const p = normalizePath(fullPath);
-  const base = n;
-  if (protectedFileNames().includes(base)) return true;
-  for (const root of windowsRoots()) {
-    if (pathEquals(p, root) || pathIsUnder(p, root)) {
-      // Still walk Windows.old — leftover OS, classic bloat.
-      if (n === "windows.old") return false;
-      return true;
+  const p = toCanonical(fullPath);
+  if (protectedFileNames().includes(n)) return true;
+
+  if (looksWindows(fullPath) || process.platform === "win32") {
+    for (const root of windowsRoots()) {
+      if (pathEquals(p, root) || pathIsUnder(p, root)) {
+        if (n === "windows.old") return false;
+        return true;
+      }
+    }
+  }
+
+  if (looksUnix(fullPath) || process.platform !== "win32") {
+    const unixSkip = ["/proc", "/sys", "/dev", "/run", "/private/var/vm"];
+    for (const root of unixSkip) {
+      if (pathEquals(p, root) || pathIsUnder(p, root)) return true;
     }
   }
   return false;
@@ -54,13 +97,16 @@ export function isDeniedForScan(fullPath: string, name?: string): boolean {
 
 /** Paths we must never recycle or move. */
 export function isDeniedForAction(fullPath: string): boolean {
-  const p = normalizePath(fullPath);
-  const parts = p.split("\\");
-  if (parts.length <= 1) return true;
-  // Volume root like C:
+  const p = toCanonical(fullPath);
   if (/^[a-z]:$/i.test(p)) return true;
-  if (/^[a-z]:\\$/i.test(fullPath)) return true;
-  if (isDeniedForScan(p)) return true;
+  if (p === "/" || p === "") return true;
+  if (isDeniedForScan(fullPath)) return true;
+
+  if (looksUnix(fullPath) || process.platform !== "win32") {
+    for (const root of unixActionRoots()) {
+      if (pathEquals(p, root) || pathIsUnder(p, root)) return true;
+    }
+  }
   return false;
 }
 

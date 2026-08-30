@@ -1,0 +1,76 @@
+name: Release installers
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            script: dist:win
+            artifact: windows
+          - os: macos-latest
+            script: dist:mac
+            artifact: macos
+          - os: ubuntu-latest
+            script: dist:linux
+            artifact: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Build installer
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run ${{ matrix.script }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spacetrash-${{ matrix.artifact }}
+          path: |
+            dist/desktop/*.exe
+            dist/desktop/*.dmg
+            dist/desktop/*.zip
+            dist/desktop/*.AppImage
+            dist/desktop/*.deb
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          files=(artifacts/*/*)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No installer artifacts found"
+            exit 1
+          fi
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" "${files[@]}" --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" "${files[@]}" \
+              --title "SpaceTrash ${GITHUB_REF_NAME}" \
+              --generate-notes
+          fi

@@ -9,7 +9,10 @@
   "scripts": {
     "bundle": "node scripts/bundle.mjs",
     "start": "npm run bundle && electron src/main.js",
-    "dist": "npm run bundle && electron-builder --win nsis portable"
+    "dist": "npm run bundle && electron-builder --win nsis portable",
+    "dist:win": "npm run bundle && electron-builder --win nsis portable",
+    "dist:mac": "npm run bundle && electron-builder --mac dmg zip",
+    "dist:linux": "npm run bundle && electron-builder --linux AppImage deb"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1"

@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import type { Volume, VolumeKind } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
@@ -33,17 +34,7 @@ export async function listVolumes(): Promise<Volume[]> {
   if (process.platform === "win32") {
     return listWindowsVolumes();
   }
-  return [
-    {
-      id: "/",
-      path: "/",
-      label: "root",
-      fs: "",
-      totalBytes: 0,
-      freeBytes: 0,
-      kind: "fixed",
-    },
-  ];
+  return listUnixVolumes();
 }
 
 async function listWindowsVolumes(): Promise<Volume[]> {
@@ -93,6 +84,49 @@ function fallbackLetterScan(): Volume[] {
       freeBytes: 0,
       kind: "fixed",
     });
+  }
+  return out;
+}
+
+async function listUnixVolumes(): Promise<Volume[]> {
+  const home = homedir();
+  const out: Volume[] = [
+    {
+      id: "home",
+      path: home,
+      label: "Home",
+      fs: "",
+      totalBytes: 0,
+      freeBytes: 0,
+      kind: "fixed",
+    },
+  ];
+  try {
+    const { stdout } = await execFileAsync("df", ["-Pk"], { timeout: 10_000 });
+    const seen = new Set<string>([home]);
+    for (const line of stdout.trim().split("\n").slice(1)) {
+      const parts = line.trim().split(/\s+/);
+      if (parts.length < 6) continue;
+      const mount = parts.slice(5).join(" ");
+      const totalBytes = Number(parts[1]) * 1024;
+      const freeBytes = Number(parts[3]) * 1024;
+      if (!mount.startsWith("/") || seen.has(mount)) continue;
+      if (/^\/(dev|proc|sys|run|snap|boot\/efi)(\/|$)/.test(mount)) continue;
+      seen.add(mount);
+      const extra =
+        mount.startsWith("/Volumes/") || mount.startsWith("/mnt/") || mount.startsWith("/media/");
+      out.push({
+        id: mount,
+        path: mount.endsWith("/") ? mount : `${mount}/`,
+        label: mount === "/" ? "System" : mount.split("/").filter(Boolean).pop() || mount,
+        fs: parts[0],
+        totalBytes: Number.isFinite(totalBytes) ? totalBytes : 0,
+        freeBytes: Number.isFinite(freeBytes) ? freeBytes : 0,
+        kind: mount === "/" ? "unknown" : extra ? "fixed" : "unknown",
+      });
+    }
+  } catch {
+    // Home card is enough to start a scan.
   }
   return out;
 }

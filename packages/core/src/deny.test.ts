@@ -24,4 +24,11 @@ describe("deny list", () => {
     assert.equal(isDeniedForAction("C:\\Users\\matt\\Downloads\\CursorSetup.exe"), false);
     assert.equal(isDeniedForScan("C:\\Windows.old\\Windows\\foo.dll", "foo.dll"), false);
   });
+
+  it("blocks unix system trees and allows a home file", () => {
+    assert.equal(isDeniedForScan("/proc/cpuinfo", "cpuinfo"), true);
+    assert.equal(isDeniedForAction("/usr/bin/ls"), true);
+    assert.equal(isDeniedForAction("/"), true);
+    assert.equal(isDeniedForAction("/home/matt/Downloads/setup.dmg"), false);
+  });
 });

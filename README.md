@@ -1,63 +1,65 @@
 # SpaceTrash
 
-Windows disk optimiser: scan drives, classify what is removable / bloat / archiveable / keep, then fix each issue with **Preview → Confirm**. Nothing is deleted or moved until you confirm. Confirmed recycles go to the Recycle Bin.
+Scan disks, classify what is removable / bloat / archiveable / keep, then fix each issue with **Preview → Confirm**. Nothing is deleted or moved until you confirm. Confirmed items go to the Recycle Bin (Trash on macOS/Linux).
 
-Independent of [Pulsar](https://github.com). Pulsar (or Cursor, or any MCP client) can attach it as a tool. See [docs/PULSAR.md](docs/PULSAR.md).
+Independent of Pulsar. Pulsar (or Cursor, or any MCP client) can attach it as a tool. See [docs/PULSAR.md](docs/PULSAR.md).
 
-## Installer (separate Windows program)
+## Download
 
-Build a normal Windows installer from this repo. The result does **not** need Node or npm on the target PC.
+Latest installers: **[GitHub Releases](https://github.com/SpaceyDee/SpaceTrash/releases/latest)**
 
-```bash
-npm install
-npm run dist
-```
+| Package | Platform |
+|---|---|
+| `SpaceTrash-Setup-*.exe` | Windows installer |
+| `SpaceTrash-Portable-*.exe` | Windows, no install |
+| `SpaceTrash-*-mac-universal.dmg` | macOS (CI) |
+| `SpaceTrash-*-linux-*.AppImage` / `.deb` | Linux (CI) |
 
-Artifacts land in `dist/desktop/`:
+v0.1 is Windows-first. macOS and Linux installers are produced by the release workflow when a `v*` tag is pushed. How to cut a release: [docs/RELEASE.md](docs/RELEASE.md).
 
-- `SpaceTrash-Setup-0.1.0.exe` — NSIS installer (Start Menu + desktop shortcut, uninstall from Settings)
-- `SpaceTrash-Portable-0.1.0.exe` — run without installing
+## Safety
 
-The installed app is SpaceTrash.exe. It starts its own local engine on `127.0.0.1` and opens the UI. Pulsar can still attach over MCP while the app is running.
+- Protected paths (Windows, Program Files, `/usr`, `/System`, pagefile, Recycle Bin, …) are never proposed for delete.
+- Junctions / reparse points are not followed.
+- Apply without a preview token, or without `confirm: true`, is rejected.
+- Archive findings are preview-only in v1.
+- Closing the app cancels any scan in progress so the next launch is clean.
 
-## Requirements (from source)
+## Run from source
 
-- Windows
-- Node 22+
-
-## Quick start (from source)
+Needs Node 22+.
 
 ```bash
 npm install
 npm run api
 ```
 
-Open [http://127.0.0.1:3847](http://127.0.0.1:3847). Pick volumes, or paste a folder path in **Folder override** to scan one tree. Or run the desktop shell:
+Open [http://127.0.0.1:3847](http://127.0.0.1:3847). Or:
 
 ```bash
 npm run desktop
 ```
 
-CLI (engine talks to the same local database):
-
 ```bash
 npm run cli -- volumes
-npm run cli -- scan --root G:\Projects\SpaceTrash
-npm run cli -- findings <scanId>
+npm run cli -- scan --root .
 ```
 
-## Safety
+Build installers on this machine:
 
-- Protected paths (Windows, Program Files, pagefile, Recycle Bin, …) are never proposed for delete.
-- Junctions / reparse points are not followed.
-- `POST /api/actions/apply` without a preview token, or with `confirm` not `true`, is rejected.
-- Archive findings are preview-only in v1.
+```bash
+npm run dist:win     # Windows
+npm run dist:mac     # macOS (run on a Mac)
+npm run dist:linux   # Linux (run on Linux)
+```
 
 ## Layout
 
-- `packages/core` — walker, SQLite index, rules, Recycle Bin apply
+- `packages/core` — walker, SQLite index, rules, Trash / Recycle Bin apply
 - `packages/api` — localhost HTTP + the same UI the desktop loads
 - `packages/mcp` — stdio MCP bridge over that HTTP API
-- `packages/desktop` — Electron window
+- `packages/desktop` — Electron shell and installer config
 
-Data lives in `%LOCALAPPDATA%\SpaceTrash\` (override with `SPACETRASH_DATA`).
+Data lives in `%LOCALAPPDATA%\SpaceTrash\` on Windows, `~/Library/Application Support/SpaceTrash` on macOS, and `~/.local/share/spacetrash` on Linux (`SPACETRASH_DATA` overrides).
+
+License: [MIT](LICENSE).
