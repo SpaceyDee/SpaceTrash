@@ -1,0 +1,13 @@
+{
+  "name": "@spacetrash/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/main.js",
+  "scripts": {
+    "start": "electron src/main.js"
+  },
+  "devDependencies": {
+    "electron": "^34.5.8"
+  }
+}

@@ -1,0 +1,89 @@
+:root {
+  --bg: #0e1116;
+  --panel: #171b22;
+  --line: #2a3140;
+  --text: #e8edf5;
+  --muted: #8b93a0;
+  --lime: #c8f542;
+  --amber: #f5a524;
+  --orange: #ff8a4a;
+  --red: #ff6b4a;
+  --blue: #7dd3fc;
+  --keep: #94a3b8;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 "Segoe UI", system-ui, sans-serif; }
+.top {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  padding: 22px 28px 8px; border-bottom: 1px solid var(--line);
+}
+h1 { margin: 0; font-size: 28px; letter-spacing: -0.03em; }
+h2 { margin: 0 0 12px; font-size: 16px; }
+.tag, .muted { color: var(--muted); }
+.top-meta { color: var(--muted); font-size: 13px; }
+.panel { padding: 20px 28px; }
+.volumes { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.vol {
+  display: flex; gap: 10px; align-items: center;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; min-width: 180px;
+}
+.vol input { accent-color: var(--lime); }
+.vol b { display: block; }
+.vol small { color: var(--muted); }
+.row { display: flex; gap: 12px; align-items: center; }
+.row.wrap { flex-wrap: wrap; margin-bottom: 10px; }
+.folder { color: var(--muted); font-size: 13px; display: flex; gap: 8px; align-items: center; width: 100%; }
+.folder input {
+  flex: 1; background: var(--panel); border: 1px solid var(--line); color: var(--text);
+  border-radius: 8px; padding: 8px 10px; font: inherit;
+}
+.spread { justify-content: space-between; }
+button {
+  border: 0; border-radius: 8px; padding: 9px 14px; cursor: pointer;
+  background: #243044; color: var(--text); font-weight: 600;
+}
+button.primary { background: var(--lime); color: #111; }
+button.danger { background: var(--red); color: #111; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+.progress-wrap { margin-top: 14px; }
+.progress { height: 8px; background: #222833; border-radius: 99px; overflow: hidden; }
+.progress i { display: block; height: 100%; width: 0; background: var(--lime); transition: width 0.2s; }
+.hidden { display: none !important; }
+.cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 0 28px 8px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.card h3 { margin: 0 0 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.card strong { display: block; font-size: 22px; margin-bottom: 4px; }
+.card.removable strong { color: var(--lime); }
+.card.bloat strong { color: var(--amber); }
+.card.archive strong { color: var(--blue); }
+.card.keep strong { color: var(--keep); }
+.card span { color: var(--muted); font-size: 12px; }
+.filters { display: flex; gap: 6px; }
+.chip { background: transparent; border: 1px solid var(--line); font-weight: 500; }
+.chip.on { border-color: var(--lime); color: var(--lime); }
+.issues { display: flex; flex-direction: column; gap: 8px; }
+.issue {
+  display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; cursor: pointer;
+}
+.issue:hover { border-color: #3d475c; }
+.issue em { font-style: normal; color: var(--muted); font-size: 13px; }
+.badge { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; padding: 3px 7px; border-radius: 99px; }
+.badge.removable { background: #243414; color: var(--lime); }
+.badge.bloat { background: #3a2a10; color: var(--amber); }
+.badge.archiveable { background: #102433; color: var(--blue); }
+.drawer {
+  position: fixed; inset: 0 0 0 auto; width: min(460px, 96vw);
+  background: #12161d; border-left: 1px solid var(--line); padding: 18px; overflow: auto;
+}
+.drawer-inner h2 { margin-top: 8px; }
+.close { float: right; }
+#dPaths { padding-left: 18px; font-size: 12px; color: var(--muted); word-break: break-all; }
+.preview {
+  margin-top: 14px; padding: 10px; background: #0b0e13; border: 1px solid var(--line);
+  border-radius: 8px; white-space: pre-wrap; font-size: 12px; color: #d5dbe6;
+}
+@media (max-width: 900px) {
+  .cards { grid-template-columns: 1fr 1fr; }
+}

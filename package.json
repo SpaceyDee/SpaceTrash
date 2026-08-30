@@ -1,0 +1,27 @@
+{
+  "name": "spacetrash",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Windows disk optimiser: scan, classify, confirm-to-act. Independent; Pulsar attaches via MCP.",
+  "workspaces": [
+    "packages/core",
+    "packages/api",
+    "packages/mcp",
+    "packages/desktop"
+  ],
+  "scripts": {
+    "api": "npm run start -w @spacetrash/api",
+    "mcp": "npm run start -w @spacetrash/mcp",
+    "desktop": "npm run start -w @spacetrash/desktop",
+    "cli": "npm run cli -w @spacetrash/core",
+    "test": "npm run test -w @spacetrash/core"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

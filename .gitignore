@@ -1,0 +1,15 @@
+node_modules/
+dist/
+*.db
+*.db-journal
+*.log
+.env
+.env.*
+data/
+.DS_Store
+Thumbs.db
+*.tgz
+.vscode/
+.idea/
+coverage/
+fixtures/safe-scan-generated/

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SpaceTrash</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div>
+        <h1>SpaceTrash</h1>
+        <p class="tag">Scan. Classify. Confirm before anything moves.</p>
+      </div>
+      <div class="top-meta" id="statusLine">Connecting…</div>
+    </header>
+
+    <section class="panel">
+      <h2>Volumes</h2>
+      <div id="volumes" class="volumes">Loading drives…</div>
+      <div class="row wrap">
+        <label class="folder">Folder override <input id="folderOverride" type="text" placeholder="Optional: G:\Projects\example" /></label>
+      </div>
+      <div class="row">
+        <button id="scanBtn" class="primary" type="button">Scan selected</button>
+        <span id="scanHint" class="muted">Nothing is deleted until you Preview, then Confirm.</span>
+      </div>
+      <div class="progress-wrap hidden" id="progressWrap">
+        <div class="progress"><i id="progressBar"></i></div>
+        <div class="muted" id="progressText"></div>
+      </div>
+    </section>
+
+    <section class="cards" id="cards">
+      <article class="card removable"><h3>Removable</h3><strong id="c-removable">—</strong><span>caches, installers, scratch</span></article>
+      <article class="card bloat"><h3>Bloat</h3><strong id="c-bloat">—</strong><span>old copies, stale trees</span></article>
+      <article class="card archive"><h3>Archiveable</h3><strong id="c-archiveable">—</strong><span>large and unused</span></article>
+      <article class="card keep"><h3>Keep</h3><strong id="c-keep">—</strong><span>everything else scanned</span></article>
+    </section>
+
+    <section class="panel">
+      <div class="row spread">
+        <h2>Issues</h2>
+        <div class="filters" id="filters">
+          <button type="button" data-class="" class="chip on">All</button>
+          <button type="button" data-class="removable" class="chip">Removable</button>
+          <button type="button" data-class="bloat" class="chip">Bloat</button>
+          <button type="button" data-class="archiveable" class="chip">Archive</button>
+        </div>
+      </div>
+      <div id="issues" class="issues">Scan a drive to see issues.</div>
+    </section>
+
+    <aside id="drawer" class="drawer hidden">
+      <div class="drawer-inner">
+        <button type="button" class="close" id="closeDrawer">Close</button>
+        <h2 id="dTitle"></h2>
+        <p class="muted" id="dMeta"></p>
+        <p id="dWhy"></p>
+        <h3>Paths</h3>
+        <ul id="dPaths"></ul>
+        <div class="row">
+          <button type="button" class="primary" id="previewBtn">Preview</button>
+          <button type="button" class="danger hidden" id="confirmBtn">Confirm recycle</button>
+        </div>
+        <pre id="dPreview" class="preview hidden"></pre>
+      </div>
+    </aside>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
