@@ -1,6 +1,8 @@
 # Public releases
 
-Installers are **not** stored in git (they are ~70 MB each). GitHub Releases is the distribution channel.
+Installers are **not** stored in git (they are ~70 MB each). **[GitHub Releases](https://github.com/SpaceyDee/SpaceTrash/releases/latest)** is the public download channel.
+
+Current shipped version: **0.1.9**.
 
 ## What a release contains
 
@@ -16,13 +18,13 @@ Mac and Linux packages are built by CI on tag. Windows can also be built on this
 
 ## Cut a release
 
-1. Bump `version` in the root and `packages/desktop` `package.json` files if needed.
-2. Commit and push `main`.
+1. Bump `version` in the root `package.json`, every `packages/*/package.json`, `package-lock.json`, and `packages/core/src/paths.ts` (`VERSION`).
+2. Merge to `main` and push.
 3. Tag and push:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.9
+git push origin v0.1.9
 ```
 
 4. GitHub Actions (`.github/workflows/release.yml`) builds all three OS installers and attaches them to the GitHub Release.
@@ -33,13 +35,13 @@ Manual Windows-only build:
 npm run dist:win
 ```
 
-Artifacts land in `dist/desktop/`.
+Artifacts land in `dist/desktop/` (gitignored).
 
-## LAN auto-update (Windows)
+## LAN auto-update (maintainer)
 
-Packaged builds check `http://192.168.0.100/spacetrash` (LXC 100 on the Proxmox host). Override with `SPACETRASH_UPDATE_URL`.
+Packaged Windows builds check a private LAN feed (`http://192.168.0.100/spacetrash` unless `SPACETRASH_UPDATE_URL` is set). That feed is not a public service. Strangers should use GitHub Releases.
 
-After `npm run dist:win`:
+After `npm run dist:win`, with `PVE_PASS` set:
 
 ```bash
 python scripts/publish-update.py --setup
@@ -47,7 +49,11 @@ python scripts/publish-update.py --setup
 
 `--setup` is only needed the first time (nginx location + directory). Later publishes omit it.
 
+`scripts/pve-*.py` and `scripts/vnc-*.py` are lab helpers for a local Proxmox VM. They read `PVE_PASS` from the environment and must never print tickets or passwords.
+
 v0.1.0 installs do not contain the updater — install 0.1.1 once, then later versions can apply themselves.
+
+## What shipped
 
 From 0.1.9, folders that look like leftover apps are checked against installed programs and Start Menu / desktop shortcuts. Live install and AppData trees stay keep. Orphans get Ignore, Move into App leftovers, or Recycle, behind Confirm.
 
@@ -64,11 +70,3 @@ From 0.1.4, worker results are applied in short slices on the UI thread so the w
 From 0.1.3, each selected drive is walked in its own worker thread so disks are scanned at the same time, and **Stop scan** cancels a run from the UI.
 
 From 0.1.2, a completed scan is remembered. The next scan of the same drive skips folders whose timestamps have not changed and only walks new or changed files. The first 0.1.2 launch also seeds that memory from the last completed 0.1.1 scan.
-
-## Making the repo public
-
-On GitHub: **Settings → General → Danger zone → Change repository visibility → Public**.
-
-The release assets stay attached after you flip visibility. Download links use the same URL:
-
-`https://github.com/SpaceyDee/SpaceTrash/releases/latest`

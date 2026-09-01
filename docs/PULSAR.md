@@ -24,7 +24,7 @@ Cursor / Claude / other MCP hosts:
     "spacetrash": {
       "command": "npx",
       "args": ["tsx", "packages/mcp/src/index.ts"],
-      "cwd": "G:\\Projects\\SpaceTrash",
+      "cwd": "/absolute/path/to/SpaceTrash",
       "env": {
         "SPACETRASH_URL": "http://127.0.0.1:3847"
       }
@@ -33,7 +33,7 @@ Cursor / Claude / other MCP hosts:
 }
 ```
 
-From a global install of the repo you can also run `npm run mcp` in that working directory.
+On Windows, `cwd` is the clone path, for example `C:\\Users\\you\\src\\SpaceTrash`. From that directory you can also run `npm run mcp`.
 
 ## 3. Tools
 
