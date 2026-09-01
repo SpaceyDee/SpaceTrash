@@ -12,6 +12,8 @@ Thumbs.db
 .vscode/
 .idea/
 coverage/
+__pycache__/
+*.pyc
 fixtures/safe-scan-generated/
 fixtures/walk-generated/
 fixtures/ui-preview/
