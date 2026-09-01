@@ -107,7 +107,7 @@ describe("program index loader", () => {
     const index = loadProgramIndex();
     assert.equal(index.programs[0]?.displayName, "Google Chrome");
     assert.equal(index.shortcutTargets.length, 1);
-    await rm(dirname(indexFile), { recursive: true, force: true });
+    await rm(indexFile, { force: true });
   });
 
   it("strips a UTF-8 BOM from an injected JSON index", async () => {
@@ -117,6 +117,6 @@ describe("program index loader", () => {
     resetProgramIndexCache();
     const index = loadProgramIndex();
     assert.equal(index.programs[0]?.displayName, "Google Chrome");
-    await rm(dirname(indexFile), { recursive: true, force: true });
+    await rm(indexFile, { force: true });
   });
 });

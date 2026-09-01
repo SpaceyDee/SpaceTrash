@@ -74,7 +74,8 @@ export function tokenizeName(name: string): string[] {
 function folderBase(installLocation: string | null): string {
   if (!installLocation) return "";
   const trimmed = installLocation.replace(/[\\/]+$/, "");
-  return basename(trimmed);
+  const parts = trimmed.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? "";
 }
 
 export function strongTokens(program: InstalledProgram): string[] {

@@ -15,6 +15,9 @@ mkdirSync(dirname(emptyPrograms), { recursive: true });
 writeFileSync(emptyPrograms, JSON.stringify({ programs: [], shortcutTargets: [] }));
 process.env.SPACETRASH_PROGRAM_INDEX = emptyPrograms;
 process.env.SPACETRASH_DATA = data;
+if (!process.env.SPACETRASH_HOT_ZONE) {
+  process.env.SPACETRASH_HOT_ZONE = join(repoRoot, "fixtures", "ci-hot-zone");
+}
 closeDb();
 
 const { createEngine } = await import("./engine.ts");

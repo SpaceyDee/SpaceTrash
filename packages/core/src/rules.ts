@@ -110,6 +110,9 @@ function queryFiles(db: Database.Database, sql: string, ...params: unknown[]): F
   return db.prepare(sql).all(...params) as FileRow[];
 }
 
+/** SQLite: fold Windows separators so classify rules match Unix inventory paths too. */
+const PATH_POSIX = `replace(lower(path), '\\', '/')`;
+
 function isDriveRoot(nativePath: string): boolean {
   return /^[a-z]:\/?$/i.test(toCanonical(nativePath));
 }
@@ -384,13 +387,13 @@ export function classifyScan(db: Database.Database, scanId: string, options: Sca
   const cacheHits = queryFiles(
     db,
     `SELECT * FROM files WHERE scan_id = ? AND is_dir = 0 AND (
-      lower(path) LIKE '%\\appdata\\local\\temp\\%'
-      OR lower(path) LIKE '%\\appdata\\local\\npm-cache\\%'
-      OR (lower(path) LIKE '%\\google\\chrome\\user data\\%' AND lower(path) LIKE '%\\cache%')
-      OR (lower(path) LIKE '%\\microsoft\\edge\\user data\\%' AND lower(path) LIKE '%\\cache%')
-      OR (lower(path) LIKE '%\\mozilla\\firefox\\profiles\\%' AND lower(path) LIKE '%\\cache%')
-      OR lower(path) LIKE '%\\.npm\\_cacache\\%'
-      OR lower(path) LIKE '%\\pip\\cache\\%'
+      ${PATH_POSIX} LIKE '%/appdata/local/temp/%'
+      OR ${PATH_POSIX} LIKE '%/appdata/local/npm-cache/%'
+      OR (${PATH_POSIX} LIKE '%/google/chrome/user data/%' AND ${PATH_POSIX} LIKE '%/cache%')
+      OR (${PATH_POSIX} LIKE '%/microsoft/edge/user data/%' AND ${PATH_POSIX} LIKE '%/cache%')
+      OR (${PATH_POSIX} LIKE '%/mozilla/firefox/profiles/%' AND ${PATH_POSIX} LIKE '%/cache%')
+      OR ${PATH_POSIX} LIKE '%/.npm/_cacache/%'
+      OR ${PATH_POSIX} LIKE '%/pip/cache/%'
     )`,
     scanId,
   );
@@ -418,7 +421,7 @@ export function classifyScan(db: Database.Database, scanId: string, options: Sca
   const tmpHits = queryFiles(
     db,
     `SELECT * FROM files WHERE scan_id = ? AND is_dir = 0 AND (
-      lower(path) LIKE '%\\downloads\\tmp\\%' OR lower(path) LIKE '%\\downloads\\temp\\%'
+      ${PATH_POSIX} LIKE '%/downloads/tmp/%' OR ${PATH_POSIX} LIKE '%/downloads/temp/%'
     )`,
     scanId,
   );
@@ -461,9 +464,9 @@ export function classifyScan(db: Database.Database, scanId: string, options: Sca
           OR lower(name) LIKE '%jre-%'
           OR lower(name) LIKE '%cursorsetup%'
           OR lower(name) LIKE '%rufus%'
-          OR lower(path) LIKE '%\\downloads\\%'
-          OR lower(path) LIKE '%\\desktop\\%'
-          OR lower(path) LIKE '%\\tmp\\%'
+          OR ${PATH_POSIX} LIKE '%/downloads/%'
+          OR ${PATH_POSIX} LIKE '%/desktop/%'
+          OR ${PATH_POSIX} LIKE '%/tmp/%'
         )
       )
     )`,
@@ -493,7 +496,7 @@ export function classifyScan(db: Database.Database, scanId: string, options: Sca
 
   const winOld = queryFiles(
     db,
-    `SELECT * FROM files WHERE scan_id = ? AND is_dir = 0 AND lower(path) LIKE '%\\windows.old\\%'`,
+    `SELECT * FROM files WHERE scan_id = ? AND is_dir = 0 AND ${PATH_POSIX} LIKE '%/windows.old/%'`,
     scanId,
   );
   {
@@ -519,16 +522,15 @@ export function classifyScan(db: Database.Database, scanId: string, options: Sca
 
   const nmFiles = queryFiles(
     db,
-    `SELECT * FROM files WHERE scan_id = ? AND is_dir = 0 AND lower(path) LIKE '%\\node_modules\\%'`,
+    `SELECT * FROM files WHERE scan_id = ? AND is_dir = 0 AND ${PATH_POSIX} LIKE '%/node_modules/%'`,
     scanId,
   );
   {
     const groups = new Map<string, { bytes: number; paths: string[]; mtime: number }>();
     for (const f of nmFiles) {
-      const lower = f.path.toLowerCase();
-      const idx = lower.indexOf("\\node_modules\\");
-      if (idx === -1) continue;
-      const root = f.path.slice(0, idx + "\\node_modules".length);
+      const match = f.path.match(/[/\\]node_modules(?=[/\\])/i);
+      if (!match || match.index === undefined) continue;
+      const root = f.path.slice(0, match.index + match[0].length);
       const cur = groups.get(root) ?? { bytes: 0, paths: [], mtime: 0 };
       cur.bytes += f.size;
       cur.paths.push(f.path);
