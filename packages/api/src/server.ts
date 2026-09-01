@@ -21,7 +21,10 @@ export function buildApp(opts?: { rendererDir?: string }) {
   app.use(express.json({ limit: "2mb" }));
 
   app.get("/api/status", (_req, res) => {
-    res.json(engine.status());
+    res.json({
+      ...engine.status(),
+      updateUrl: process.env.SPACETRASH_UPDATE_URL || null,
+    });
   });
 
   app.get("/api/volumes", async (_req, res) => {

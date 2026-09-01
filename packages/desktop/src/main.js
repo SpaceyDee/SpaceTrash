@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from "electron";
+import { app, BrowserWindow, dialog, shell } from "electron";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -10,11 +10,17 @@ const desktopRoot = join(here, "..");
 const repoRoot = join(desktopRoot, "../..");
 const defaultPort = Number(process.env.SPACETRASH_PORT ?? 3847);
 const host = process.env.SPACETRASH_HOST ?? "127.0.0.1";
+const DEFAULT_UPDATE_URL = "http://192.168.0.100/spacetrash";
+const bundledWorker = join(desktopRoot, "build/walk-worker.cjs");
+if (existsSync(bundledWorker)) {
+  process.env.SPACETRASH_WALK_WORKER ??= bundledWorker;
+}
 
 let apiChild = null;
 let apiUrl = `http://${host}:${defaultPort}`;
 let ownedApi = false;
 let quitting = false;
+let installingUpdate = false;
 
 function npmCmd() {
   return process.platform === "win32" ? "npm.cmd" : "npm";
@@ -95,6 +101,52 @@ async function ensureApi() {
   throw lastError ?? new Error("SpaceTrash API failed to start");
 }
 
+function setupUpdates() {
+  if (!app.isPackaged) return;
+  const require = createRequire(import.meta.url);
+  const { autoUpdater } = require("electron-updater");
+  const feed = process.env.SPACETRASH_UPDATE_URL || DEFAULT_UPDATE_URL;
+  autoUpdater.setFeedURL({ provider: "generic", url: feed });
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  if (process.platform === "win32") {
+    autoUpdater.verifyUpdateCodeSignature = false;
+  }
+  autoUpdater.on("before-quit-for-update", () => {
+    installingUpdate = true;
+  });
+  autoUpdater.on("update-available", (info) => {
+    void dialog.showMessageBox({
+      type: "info",
+      title: "SpaceTrash update",
+      message: `Version ${info.version} is available. Downloading now.`,
+    });
+  });
+  autoUpdater.on("update-downloaded", (info) => {
+    void dialog
+      .showMessageBox({
+        type: "info",
+        buttons: ["Restart now", "Later"],
+        defaultId: 0,
+        cancelId: 1,
+        title: "SpaceTrash update",
+        message: `Version ${info.version} is ready. Restart to install.`,
+      })
+      .then(({ response }) => {
+        if (response === 0) {
+          installingUpdate = true;
+          autoUpdater.quitAndInstall();
+        }
+      });
+  });
+  autoUpdater.on("error", (err) => {
+    console.error("[spacetrash] update check failed", err);
+  });
+  void autoUpdater.checkForUpdates().catch((err) => {
+    console.error("[spacetrash] update check failed", err);
+  });
+}
+
 async function createWindow() {
   const win = new BrowserWindow({
     width: 1220,
@@ -133,8 +185,12 @@ if (!gotLock) {
   }
 
   app.whenReady().then(async () => {
+    if (app.isPackaged) {
+      process.env.SPACETRASH_UPDATE_URL ??= DEFAULT_UPDATE_URL;
+    }
     await ensureApi();
     await createWindow();
+    setupUpdates();
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) void createWindow();
     });
@@ -164,6 +220,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", (event) => {
+  if (installingUpdate) return;
   if (quitting) return;
   event.preventDefault();
   quitting = true;

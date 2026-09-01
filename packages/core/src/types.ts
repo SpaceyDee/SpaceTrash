@@ -33,6 +33,8 @@ export interface ScanJob {
   error?: string;
   progress: number;
   currentPath?: string;
+  filesSkipped?: number;
+  filesWalked?: number;
 }
 
 export interface Finding {

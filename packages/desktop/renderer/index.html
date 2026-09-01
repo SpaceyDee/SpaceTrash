@@ -23,7 +23,8 @@
       </div>
       <div class="row">
         <button id="scanBtn" class="primary" type="button">Scan selected</button>
-        <span id="scanHint" class="muted">Nothing is deleted until you Preview, then Confirm.</span>
+        <button id="stopBtn" class="danger hidden" type="button" disabled>Stop scan</button>
+        <span id="scanHint" class="muted">Each selected drive walks in its own worker at the same time. First pass is a full sweep; later scans skip unchanged folders. Nothing is deleted until you Preview, then Confirm.</span>
       </div>
       <div class="progress-wrap hidden" id="progressWrap">
         <div class="progress"><i id="progressBar"></i></div>

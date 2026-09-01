@@ -35,6 +35,26 @@ npm run dist:win
 
 Artifacts land in `dist/desktop/`.
 
+## LAN auto-update (Windows)
+
+Packaged builds check `http://192.168.0.100/spacetrash` (LXC 100 on the Proxmox host). Override with `SPACETRASH_UPDATE_URL`.
+
+After `npm run dist:win`:
+
+```bash
+python scripts/publish-update.py --setup
+```
+
+`--setup` is only needed the first time (nginx location + directory). Later publishes omit it.
+
+v0.1.0 installs do not contain the updater — install 0.1.1 once, then later versions can apply themselves.
+
+From 0.1.4, worker results are applied in short slices on the UI thread so the window stays responsive (and Stop works) while several drives write into SQLite at once.
+
+From 0.1.3, each selected drive is walked in its own worker thread so disks are scanned at the same time, and **Stop scan** cancels a run from the UI.
+
+From 0.1.2, a completed scan is remembered. The next scan of the same drive skips folders whose timestamps have not changed and only walks new or changed files. The first 0.1.2 launch also seeds that memory from the last completed 0.1.1 scan.
+
 ## Making the repo public
 
 On GitHub: **Settings → General → Danger zone → Change repository visibility → Public**.

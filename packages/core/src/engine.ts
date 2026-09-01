@@ -103,22 +103,34 @@ export function createEngine() {
       job.progress = 0.02;
       updateScan(db, job);
 
+      let lastProgressWrite = 0;
       const walked = await walkRoots(
         db,
         id,
         roots,
         (p) => {
-          const live = getScan(db, id);
-          if (!live) return;
+          let live;
+          try {
+            live = getScan(db, id);
+          } catch {
+            return;
+          }
+          if (!live || live.status === "cancelled" || cancel.has(id)) return;
           live.filesSeen = p.filesSeen;
           live.bytesSeen = p.bytesSeen;
+          live.filesSkipped = p.filesSkipped;
+          live.filesWalked = p.filesWalked;
           live.currentPath = p.currentPath;
-          live.progress = Math.min(0.85, 0.05 + p.filesSeen / 200_000);
-          updateScan(db, live);
+          live.progress = Math.min(0.85, 0.05 + (p.filesWalked + p.filesSkipped) / 200_000);
+          const now = Date.now();
+          if (now - lastProgressWrite < 250) return;
+          lastProgressWrite = now;
+          if (db.open) updateScan(db, live);
         },
-        () => cancel.has(id),
+        () => cancel.has(id) || !db.open,
       );
 
+      if (!db.open) return;
       const afterWalk = getScan(db, id);
       if (!afterWalk || afterWalk.status === "cancelled" || cancel.has(id) || stopped) {
         const live = afterWalk ?? getScan(db, id);
@@ -134,9 +146,18 @@ export function createEngine() {
 
       afterWalk.filesSeen = walked.filesSeen;
       afterWalk.bytesSeen = walked.bytesSeen;
+      afterWalk.filesSkipped = walked.filesSkipped;
+      afterWalk.filesWalked = walked.filesWalked;
       afterWalk.progress = 0.9;
-      afterWalk.currentPath = "classifying";
+      afterWalk.currentPath = walked.errors.length
+        ? `classifying · ${walked.errors.length} walk warning(s)`
+        : "classifying";
+      if (walked.errors.length) {
+        afterWalk.error = walked.errors.map((e) => `${e.path}: ${e.message}`).join("\n");
+      }
       updateScan(db, afterWalk);
+      await new Promise((r) => setImmediate(r));
+      if (!db.open || cancel.has(id) || stopped) return;
 
       classifyScan(db, id, { ...options, roots });
 
@@ -148,6 +169,7 @@ export function createEngine() {
       done.currentPath = "";
       updateScan(db, done);
     } catch (err) {
+      if (!db.open) return;
       const live = getScan(db, id);
       if (!live) return;
       live.status = "failed";

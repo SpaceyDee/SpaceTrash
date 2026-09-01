@@ -13,6 +13,7 @@ Thumbs.db
 .idea/
 coverage/
 fixtures/safe-scan-generated/
+fixtures/walk-generated/
 packages/desktop/build/
 scripts/*.ppm
 scripts/*.png

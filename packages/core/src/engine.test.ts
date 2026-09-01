@@ -80,6 +80,43 @@ describe("engine fixture scan", () => {
     assert.equal(notes, false, "keep file should not be in findings");
   });
 
+  it("indexes files from every selected root", async () => {
+    const a = join(fixture, "..", "root-a");
+    const b = join(fixture, "..", "root-b");
+    await mkdir(a, { recursive: true });
+    await mkdir(b, { recursive: true });
+    await writeFile(join(a, "only-a.bin"), Buffer.alloc(2048, 9));
+    await writeFile(join(b, "only-b.bin"), Buffer.alloc(2048, 8));
+    const engine = createEngine();
+    const job = engine.startScan({ roots: [a, b] });
+    const done = await waitForScan(engine, job.id);
+    assert.equal(done.status, "complete", done.error);
+    const db = openDb();
+    const paths = (
+      db.prepare(`SELECT path FROM files WHERE scan_id = ? AND is_dir = 0`).all(done.id) as { path: string }[]
+    ).map((row) => row.path.replace(/\\/g, "/").toLowerCase());
+    assert.ok(
+      paths.some((p) => p.endsWith("only-a.bin")),
+      `missing only-a.bin in ${paths.join(" | ")}`,
+    );
+    assert.ok(
+      paths.some((p) => p.endsWith("only-b.bin")),
+      `missing only-b.bin in ${paths.join(" | ")}`,
+    );
+  });
+
+  it("stops a running scan when cancelled", async () => {
+    const engine = createEngine();
+    const job = engine.startScan({ roots: [fixture] });
+    const stopped = engine.cancelScan(job.id);
+    assert.ok(stopped);
+    assert.equal(stopped.status, "cancelled");
+    const done = await waitForScan(engine, job.id);
+    assert.equal(done.status, "cancelled");
+    assert.match(done.error ?? "", /cancel/i);
+    await new Promise((r) => setTimeout(r, 25));
+  });
+
   it("marks leftover running scans cancelled on startup", () => {
     closeDb();
     const db = openDb();

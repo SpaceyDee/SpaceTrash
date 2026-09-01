@@ -86,13 +86,127 @@ function migrate(db: Database.Database): void {
       expires_at INTEGER NOT NULL,
       used INTEGER NOT NULL DEFAULT 0
     );
+
+    CREATE TABLE IF NOT EXISTS inventory (
+      path TEXT PRIMARY KEY,
+      parent TEXT NOT NULL,
+      name TEXT NOT NULL,
+      ext TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      mtime_ms INTEGER NOT NULL,
+      is_dir INTEGER NOT NULL,
+      checked INTEGER NOT NULL DEFAULT 0,
+      last_seen_ms INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_inventory_parent ON inventory(parent);
   `);
+  ensureColumn(db, "scans", "files_skipped", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "scans", "files_walked", "INTEGER NOT NULL DEFAULT 0");
+  seedInventoryFromLatestScan(db);
+}
+
+function ensureColumn(db: Database.Database, table: string, name: string, ddl: string): void {
+  const cols = db.pragma(`table_info(${table})`) as { name: string }[];
+  if (!cols.some((col) => col.name === name)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${ddl}`);
+  }
+}
+
+export function seedInventoryFromLatestScan(db: Database.Database): number {
+  const existing = db.prepare(`SELECT COUNT(*) AS n FROM inventory`).get() as { n: number };
+  if (existing.n > 0) return 0;
+  const info = db
+    .prepare(
+      `INSERT OR IGNORE INTO inventory (path, parent, name, ext, size, mtime_ms, is_dir, checked, last_seen_ms)
+       SELECT f.path, f.parent, f.name, f.ext, f.size, f.mtime_ms, f.is_dir, 1, COALESCE(f.mtime_ms, 0)
+       FROM files f
+       INNER JOIN scans s ON s.id = f.scan_id
+       WHERE s.status = 'complete'`,
+    )
+    .run();
+  return info.changes;
+}
+
+export interface InventoryRow {
+  path: string;
+  parent: string;
+  name: string;
+  ext: string;
+  size: number;
+  mtime_ms: number;
+  is_dir: number;
+  checked: number;
+  last_seen_ms: number;
+}
+
+export function getInventory(db: Database.Database, path: string): InventoryRow | undefined {
+  return db.prepare(`SELECT * FROM inventory WHERE path = ?`).get(path) as InventoryRow | undefined;
+}
+
+const upsertInventorySql = `INSERT INTO inventory (path, parent, name, ext, size, mtime_ms, is_dir, checked, last_seen_ms)
+     VALUES (@path, @parent, @name, @ext, @size, @mtime_ms, @is_dir, @checked, @last_seen_ms)
+     ON CONFLICT(path) DO UPDATE SET
+       parent = excluded.parent,
+       name = excluded.name,
+       ext = excluded.ext,
+       size = excluded.size,
+       mtime_ms = excluded.mtime_ms,
+       is_dir = excluded.is_dir,
+       checked = MAX(inventory.checked, excluded.checked),
+       last_seen_ms = excluded.last_seen_ms`;
+
+const upsertInventoryStmt = new WeakMap<Database.Database, Database.Statement>();
+
+export function upsertInventory(db: Database.Database, row: InventoryRow): void {
+  let stmt = upsertInventoryStmt.get(db);
+  if (!stmt) {
+    stmt = db.prepare(upsertInventorySql);
+    upsertInventoryStmt.set(db, stmt);
+  }
+  stmt.run(row);
+}
+
+export function listInventoryChildren(db: Database.Database, parent: string): InventoryRow[] {
+  return db.prepare(`SELECT * FROM inventory WHERE parent = ?`).all(parent) as InventoryRow[];
+}
+
+export function listChildDirs(db: Database.Database, parent: string): string[] {
+  return (
+    db.prepare(`SELECT path FROM inventory WHERE parent = ? AND is_dir = 1`).all(parent) as { path: string }[]
+  ).map((row) => row.path);
+}
+
+export function deleteInventorySubtree(db: Database.Database, path: string): void {
+  db.prepare(
+    `DELETE FROM inventory
+     WHERE path = ?
+        OR path LIKE ? || '\\%'
+        OR path LIKE ? || '/%'`,
+  ).run(path, path, path);
+}
+
+export function copyInventoryChildrenToScan(
+  db: Database.Database,
+  scanId: string,
+  parent: string,
+): { rows: number; bytes: number } {
+  const info = db
+    .prepare(
+      `INSERT OR IGNORE INTO files (scan_id, path, parent, name, ext, size, mtime_ms, is_dir)
+       SELECT ?, path, parent, name, ext, size, mtime_ms, is_dir
+       FROM inventory WHERE parent = ?`,
+    )
+    .run(scanId, parent);
+  const bytes = db
+    .prepare(`SELECT COALESCE(SUM(size), 0) AS bytes FROM inventory WHERE parent = ? AND is_dir = 0`)
+    .get(parent) as { bytes: number };
+  return { rows: info.changes, bytes: Number(bytes.bytes) };
 }
 
 export function insertScan(db: Database.Database, job: ScanJob): void {
   db.prepare(
-    `INSERT INTO scans (id, status, roots, files_seen, bytes_seen, started_at, finished_at, error, progress, current_path)
-     VALUES (@id, @status, @roots, @filesSeen, @bytesSeen, @startedAt, @finishedAt, @error, @progress, @currentPath)`,
+    `INSERT INTO scans (id, status, roots, files_seen, bytes_seen, started_at, finished_at, error, progress, current_path, files_skipped, files_walked)
+     VALUES (@id, @status, @roots, @filesSeen, @bytesSeen, @startedAt, @finishedAt, @error, @progress, @currentPath, @filesSkipped, @filesWalked)`,
   ).run({
     id: job.id,
     status: job.status,
@@ -104,13 +218,16 @@ export function insertScan(db: Database.Database, job: ScanJob): void {
     error: job.error ?? null,
     progress: job.progress,
     currentPath: job.currentPath ?? null,
+    filesSkipped: job.filesSkipped ?? 0,
+    filesWalked: job.filesWalked ?? 0,
   });
 }
 
 export function updateScan(db: Database.Database, job: ScanJob): void {
   db.prepare(
     `UPDATE scans SET status=@status, files_seen=@filesSeen, bytes_seen=@bytesSeen,
-      finished_at=@finishedAt, error=@error, progress=@progress, current_path=@currentPath
+      finished_at=@finishedAt, error=@error, progress=@progress, current_path=@currentPath,
+      files_skipped=@filesSkipped, files_walked=@filesWalked
      WHERE id=@id`,
   ).run({
     id: job.id,
@@ -121,6 +238,8 @@ export function updateScan(db: Database.Database, job: ScanJob): void {
     error: job.error ?? null,
     progress: job.progress,
     currentPath: job.currentPath ?? null,
+    filesSkipped: job.filesSkipped ?? 0,
+    filesWalked: job.filesWalked ?? 0,
   });
 }
 
@@ -136,6 +255,8 @@ export function rowToScan(row: Record<string, unknown>): ScanJob {
     error: row.error == null ? undefined : String(row.error),
     progress: Number(row.progress),
     currentPath: row.current_path == null ? undefined : String(row.current_path),
+    filesSkipped: Number(row.files_skipped ?? 0),
+    filesWalked: Number(row.files_walked ?? 0),
   };
 }
 

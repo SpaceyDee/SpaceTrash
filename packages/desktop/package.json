@@ -1,6 +1,6 @@
 {
   "name": "@spacetrash/desktop",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "private": true,
   "description": "SpaceTrash desktop app — scan, classify, confirm-to-act",
   "author": "SpaceTrash",
@@ -9,13 +9,14 @@
   "scripts": {
     "bundle": "node scripts/bundle.mjs",
     "start": "npm run bundle && electron src/main.js",
-    "dist": "npm run bundle && electron-builder --win nsis portable",
-    "dist:win": "npm run bundle && electron-builder --win nsis portable",
-    "dist:mac": "npm run bundle && electron-builder --mac dmg zip",
-    "dist:linux": "npm run bundle && electron-builder --linux AppImage deb"
+    "dist": "npm run dist:win",
+    "dist:win": "npm run bundle && node scripts/pack-native.mjs electron && electron-builder --win nsis portable --publish never && node scripts/pack-native.mjs node",
+    "dist:mac": "npm run bundle && node scripts/pack-native.mjs electron && electron-builder --mac dmg zip --publish never && node scripts/pack-native.mjs node",
+    "dist:linux": "npm run bundle && node scripts/pack-native.mjs electron && electron-builder --linux AppImage deb --publish never && node scripts/pack-native.mjs node"
   },
   "dependencies": {
-    "better-sqlite3": "^12.11.1"
+    "better-sqlite3": "^12.11.1",
+    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
     "electron": "34.5.8",

@@ -47,6 +47,7 @@ button.primary { background: var(--lime); color: #111; }
 button.danger { background: var(--red); color: #111; }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 .progress-wrap { margin-top: 14px; }
+#progressText { word-break: break-word; }
 .progress { height: 8px; background: #222833; border-radius: 99px; overflow: hidden; }
 .progress i { display: block; height: 100%; width: 0; background: var(--lime); transition: width 0.2s; }
 .hidden { display: none !important; }

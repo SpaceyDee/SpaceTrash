@@ -12,6 +12,7 @@ directories:
 files:
   - src/main.js
   - build/server.cjs
+  - build/walk-worker.cjs
   - renderer/**/*
   - package.json
 extraMetadata:
@@ -66,6 +67,11 @@ appImage:
 deb:
   artifactName: "${productName}-${version}-linux-${arch}.deb"
 electronVersion: 34.5.8
-npmRebuild: true
+# Host Node is often a newer ABI than Electron. Swap better-sqlite3 to the
+# Electron prebuild in dist scripts; do not let electron-builder rebuild from source.
+npmRebuild: false
+publish:
+  provider: generic
+  url: http://192.168.0.100/spacetrash
 electronLanguages:
   - en-US

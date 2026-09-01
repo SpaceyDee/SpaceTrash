@@ -33,7 +33,14 @@ async function api(path, opts) {
 async function loadStatus() {
   try {
     const s = await api("/api/status");
-    $("statusLine").textContent = `${s.name} ${s.version} · ${s.platform} · API up`;
+    const update = s.updateUrl ? ` · updates ${s.updateUrl}` : "";
+    $("statusLine").textContent = `${s.name} ${s.version} · ${s.platform} · API up${update}`;
+    if (s.activeScanId && !scanId) {
+      scanId = s.activeScanId;
+      $("progressWrap").classList.remove("hidden");
+      setScanControls(true);
+      pollScan();
+    }
   } catch {
     $("statusLine").textContent = "API offline";
   }
@@ -62,13 +69,19 @@ function selectedRoots() {
   return [...document.querySelectorAll("#volumes input:checked")].map((el) => el.value);
 }
 
+function setScanControls(running) {
+  $("scanBtn").disabled = running;
+  $("stopBtn").classList.toggle("hidden", !running);
+  $("stopBtn").disabled = !running;
+}
+
 async function startScan() {
   const roots = selectedRoots();
   if (!roots.length) {
     $("scanHint").textContent = "Select at least one volume.";
     return;
   }
-  $("scanBtn").disabled = true;
+  setScanControls(true);
   $("progressWrap").classList.remove("hidden");
   $("issues").textContent = "Scanning…";
   try {
@@ -77,7 +90,19 @@ async function startScan() {
     pollScan();
   } catch (err) {
     $("scanHint").textContent = err.message;
-    $("scanBtn").disabled = false;
+    setScanControls(false);
+  }
+}
+
+async function stopScan() {
+  if (!scanId) return;
+  $("stopBtn").disabled = true;
+  try {
+    await api(`/api/scans/${scanId}/cancel`, { method: "POST", body: {} });
+    $("scanHint").textContent = "Stopping scan…";
+  } catch (err) {
+    $("scanHint").textContent = err.message;
+    $("stopBtn").disabled = false;
   }
 }
 
@@ -88,17 +113,26 @@ async function pollScan() {
     const job = await api(`/api/scans/${scanId}`);
     const pct = Math.round((job.progress || 0) * 100);
     $("progressBar").style.width = `${pct}%`;
-    $("progressText").textContent = `${job.status} · ${job.filesSeen.toLocaleString()} files · ${fmtBytes(job.bytesSeen)} · ${job.currentPath || ""}`;
+    const skip =
+      job.filesSkipped > 0 ? ` · ${Number(job.filesSkipped).toLocaleString()} known skipped` : "";
+    const walked =
+      job.filesWalked > 0 ? ` · ${Number(job.filesWalked).toLocaleString()} new` : "";
+    $("progressText").textContent = `${job.status} · ${job.filesSeen.toLocaleString()} files${walked}${skip} · ${fmtBytes(job.bytesSeen)} · ${job.currentPath || ""}`;
     if (job.status === "complete") {
-      $("scanBtn").disabled = false;
+      setScanControls(false);
       await refreshResults();
       return;
     }
     if (job.status === "failed" || job.status === "cancelled") {
-      $("scanBtn").disabled = false;
+      setScanControls(false);
       $("progressText").textContent = job.error || job.status;
+      $("scanHint").textContent =
+        job.status === "cancelled"
+          ? "Scan stopped. You can start again whenever you want."
+          : $("scanHint").textContent;
       return;
     }
+    setScanControls(true);
   } catch (err) {
     $("progressText").textContent = err.message;
   }
@@ -184,6 +218,7 @@ async function doConfirm() {
 }
 
 $("scanBtn").addEventListener("click", startScan);
+$("stopBtn").addEventListener("click", stopScan);
 $("closeDrawer").addEventListener("click", () => $("drawer").classList.add("hidden"));
 $("previewBtn").addEventListener("click", doPreview);
 $("confirmBtn").addEventListener("click", doConfirm);

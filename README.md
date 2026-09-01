@@ -53,6 +53,10 @@ npm run dist:mac     # macOS (run on a Mac)
 npm run dist:linux   # Linux (run on Linux)
 ```
 
+Windows installers check `http://192.168.0.100/spacetrash` for updates (override with `SPACETRASH_UPDATE_URL`). Publish a new build with `python scripts/publish-update.py`.
+
+The first scan of a drive is a full sweep. Later scans skip unchanged folders and look for new files.
+
 ## Layout
 
 - `packages/core` — walker, SQLite index, rules, Trash / Recycle Bin apply
