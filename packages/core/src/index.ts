@@ -5,6 +5,8 @@ export { VERSION, dataDir } from "./paths.ts";
 export type {
   ActionKind,
   ApplyResult,
+  ArchiveKind,
+  ArchiveState,
   EngineStatus,
   Finding,
   FindingClass,

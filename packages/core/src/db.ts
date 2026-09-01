@@ -1,8 +1,8 @@
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { dbPath, ensureDataDir } from "./paths.ts";
-import type { Finding, FindingClass, FindingStatus, ScanJob } from "./types.ts";
+import { dbPath, ensureDataDir, normalizePath, pathEquals, pathIsUnder, VERSION } from "./paths.ts";
+import type { ActionKind, ArchiveKind, Finding, FindingClass, FindingStatus, ScanJob } from "./types.ts";
 
 let singleton: Database.Database | null = null;
 
@@ -98,11 +98,30 @@ function migrate(db: Database.Database): void {
       checked INTEGER NOT NULL DEFAULT 0,
       last_seen_ms INTEGER NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_inventory_parent ON inventory(parent);
+    CREATE TABLE IF NOT EXISTS protected_roots (
+      path TEXT PRIMARY KEY
+    );
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS archive_kinds (
+      kind TEXT PRIMARY KEY,
+      path TEXT NOT NULL
+    );
   `);
   ensureColumn(db, "scans", "files_skipped", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "scans", "files_walked", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "findings", "meta_json", "TEXT");
   seedInventoryFromLatestScan(db);
+  repairInventorySelfParents(db);
+  seedAppVersion(db);
+}
+
+function seedAppVersion(db: Database.Database): void {
+  if (getSetting(db, "last_app_version")) return;
+  const hasScans = db.prepare(`SELECT 1 FROM scans LIMIT 1`).get();
+  setSetting(db, "last_app_version", hasScans ? "0.0.0" : VERSION);
 }
 
 function ensureColumn(db: Database.Database, table: string, name: string, ddl: string): void {
@@ -110,6 +129,11 @@ function ensureColumn(db: Database.Database, table: string, name: string, ddl: s
   if (!cols.some((col) => col.name === name)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${ddl}`);
   }
+}
+
+export function repairInventorySelfParents(db: Database.Database): number {
+  const info = db.prepare(`DELETE FROM inventory WHERE path = parent`).run();
+  return info.changes;
 }
 
 export function seedInventoryFromLatestScan(db: Database.Database): number {
@@ -167,12 +191,24 @@ export function upsertInventory(db: Database.Database, row: InventoryRow): void 
 }
 
 export function listInventoryChildren(db: Database.Database, parent: string): InventoryRow[] {
-  return db.prepare(`SELECT * FROM inventory WHERE parent = ?`).all(parent) as InventoryRow[];
+  return db.prepare(`SELECT * FROM inventory WHERE parent = ? AND path != parent`).all(parent) as InventoryRow[];
+}
+
+export function inventoryChildStats(db: Database.Database, parent: string): { rows: number; bytes: number } {
+  return db
+    .prepare(
+      `SELECT COUNT(*) AS rows,
+              COALESCE(SUM(CASE WHEN is_dir = 0 THEN size ELSE 0 END), 0) AS bytes
+       FROM inventory WHERE parent = ? AND path != parent`,
+    )
+    .get(parent) as { rows: number; bytes: number };
 }
 
 export function listChildDirs(db: Database.Database, parent: string): string[] {
   return (
-    db.prepare(`SELECT path FROM inventory WHERE parent = ? AND is_dir = 1`).all(parent) as { path: string }[]
+    db
+      .prepare(`SELECT path FROM inventory WHERE parent = ? AND is_dir = 1 AND path != parent`)
+      .all(parent) as { path: string }[]
   ).map((row) => row.path);
 }
 
@@ -194,11 +230,11 @@ export function copyInventoryChildrenToScan(
     .prepare(
       `INSERT OR IGNORE INTO files (scan_id, path, parent, name, ext, size, mtime_ms, is_dir)
        SELECT ?, path, parent, name, ext, size, mtime_ms, is_dir
-       FROM inventory WHERE parent = ?`,
+       FROM inventory WHERE parent = ? AND path != parent`,
     )
     .run(scanId, parent);
   const bytes = db
-    .prepare(`SELECT COALESCE(SUM(size), 0) AS bytes FROM inventory WHERE parent = ? AND is_dir = 0`)
+    .prepare(`SELECT COALESCE(SUM(size), 0) AS bytes FROM inventory WHERE parent = ? AND is_dir = 0 AND path != parent`)
     .get(parent) as { bytes: number };
   return { rows: info.changes, bytes: Number(bytes.bytes) };
 }
@@ -266,6 +302,14 @@ export function getScan(db: Database.Database, id: string): ScanJob | null {
 }
 
 export function latestScan(db: Database.Database): ScanJob | null {
+  const complete = db
+    .prepare(
+      `SELECT * FROM scans
+       WHERE status = 'complete' AND (error IS NULL OR error = '')
+       ORDER BY started_at DESC LIMIT 1`,
+    )
+    .get() as Record<string, unknown> | undefined;
+  if (complete) return rowToScan(complete);
   const row = db.prepare(`SELECT * FROM scans ORDER BY started_at DESC LIMIT 1`).get() as
     | Record<string, unknown>
     | undefined;
@@ -291,9 +335,15 @@ export function abandonOpenScans(db: Database.Database, reason: string): number 
 }
 
 export function insertFinding(db: Database.Database, finding: Finding): void {
+  const meta = {
+    kind: finding.kind,
+    allowedActions: finding.allowedActions,
+    destPath: finding.destPath,
+    needsArchiveRoot: finding.needsArchiveRoot,
+  };
   db.prepare(
-    `INSERT INTO findings (id, scan_id, title, class, bytes, file_count, confidence, why, paths_json, action, risk, status)
-     VALUES (@id, @scanId, @title, @class, @bytes, @fileCount, @confidence, @why, @pathsJson, @action, @risk, @status)`,
+    `INSERT INTO findings (id, scan_id, title, class, bytes, file_count, confidence, why, paths_json, action, risk, status, meta_json)
+     VALUES (@id, @scanId, @title, @class, @bytes, @fileCount, @confidence, @why, @pathsJson, @action, @risk, @status, @metaJson)`,
   ).run({
     id: finding.id,
     scanId: finding.scanId,
@@ -307,10 +357,24 @@ export function insertFinding(db: Database.Database, finding: Finding): void {
     action: finding.action,
     risk: finding.risk,
     status: finding.status,
+    metaJson: JSON.stringify(meta),
   });
 }
 
 function rowToFinding(row: Record<string, unknown>): Finding {
+  let meta: {
+    kind?: Finding["kind"];
+    allowedActions?: ActionKind[];
+    destPath?: string;
+    needsArchiveRoot?: boolean;
+  } = {};
+  if (row.meta_json) {
+    try {
+      meta = JSON.parse(String(row.meta_json)) as typeof meta;
+    } catch {
+      meta = {};
+    }
+  }
   return {
     id: String(row.id),
     scanId: String(row.scan_id),
@@ -324,6 +388,10 @@ function rowToFinding(row: Record<string, unknown>): Finding {
     action: row.action as Finding["action"],
     risk: row.risk as Finding["risk"],
     status: row.status as FindingStatus,
+    kind: meta.kind,
+    allowedActions: meta.allowedActions,
+    destPath: meta.destPath,
+    needsArchiveRoot: meta.needsArchiveRoot,
   };
 }
 
@@ -361,4 +429,88 @@ export function classifiedBytes(db: Database.Database, scanId: string): Record<F
   const out: Record<FindingClass, number> = { removable: 0, bloat: 0, archiveable: 0, keep: 0 };
   for (const row of rows) out[row.class] = Number(row.bytes);
   return out;
+}
+
+export function resetClassification(db: Database.Database, scanId: string): void {
+  db.prepare(
+    `DELETE FROM previews WHERE finding_id IN (SELECT id FROM findings WHERE scan_id = ?)`,
+  ).run(scanId);
+  db.prepare(`DELETE FROM findings WHERE scan_id = ?`).run(scanId);
+  db.prepare(`DELETE FROM classified WHERE scan_id = ?`).run(scanId);
+}
+
+export function listProtectedRoots(db: Database.Database): string[] {
+  return (db.prepare(`SELECT path FROM protected_roots ORDER BY path`).all() as { path: string }[]).map((r) => r.path);
+}
+
+export function pathInProtectedRoots(nativePath: string, roots: string[]): boolean {
+  const p = normalizePath(nativePath);
+  return roots.some((root) => pathIsUnder(p, root));
+}
+
+export function setProtectedRoot(db: Database.Database, nativePath: string, on: boolean): void {
+  const p = normalizePath(nativePath);
+  if (!p) throw new Error("Protected path is empty");
+  if (on) {
+    if (listProtectedRoots(db).some((root) => pathEquals(root, p))) return;
+    db.prepare(`INSERT OR IGNORE INTO protected_roots (path) VALUES (?)`).run(p);
+    return;
+  }
+  for (const root of listProtectedRoots(db)) {
+    if (pathEquals(root, p)) db.prepare(`DELETE FROM protected_roots WHERE path = ?`).run(root);
+  }
+}
+
+export function isProtectedPath(db: Database.Database, nativePath: string): boolean {
+  return pathInProtectedRoots(nativePath, listProtectedRoots(db));
+}
+
+export function getSetting(db: Database.Database, key: string): string | null {
+  const row = db.prepare(`SELECT value FROM settings WHERE key = ?`).get(key) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setSetting(db: Database.Database, key: string, value: string): void {
+  db.prepare(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(
+    key,
+    value,
+  );
+}
+
+export function getArchiveRoot(db: Database.Database): string | null {
+  return getSetting(db, "archive_root");
+}
+
+export function setArchiveRootDb(db: Database.Database, nativePath: string): void {
+  setSetting(db, "archive_root", normalizePath(nativePath));
+}
+
+export function listArchiveKinds(db: Database.Database): { kind: ArchiveKind; path: string }[] {
+  return (db.prepare(`SELECT kind, path FROM archive_kinds`).all() as { kind: ArchiveKind; path: string }[]).map(
+    (row) => ({ kind: row.kind, path: normalizePath(row.path) }),
+  );
+}
+
+export function getArchiveKindPath(db: Database.Database, kind: ArchiveKind): string | null {
+  const row = db.prepare(`SELECT path FROM archive_kinds WHERE kind = ?`).get(kind) as { path: string } | undefined;
+  return row ? normalizePath(row.path) : null;
+}
+
+export function setArchiveKindPath(db: Database.Database, kind: ArchiveKind, nativePath: string): void {
+  const p = normalizePath(nativePath);
+  db.prepare(`INSERT INTO archive_kinds (kind, path) VALUES (?, ?) ON CONFLICT(kind) DO UPDATE SET path = excluded.path`).run(
+    kind,
+    p,
+  );
+}
+
+export function clearScanIndex(db: Database.Database): void {
+  db.exec(`
+    DELETE FROM previews;
+    DELETE FROM findings;
+    DELETE FROM classified;
+    DELETE FROM files;
+    DELETE FROM inventory;
+    DELETE FROM scans;
+  `);
 }

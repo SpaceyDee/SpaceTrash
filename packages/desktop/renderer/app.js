@@ -14,6 +14,7 @@ let filterClass = "";
 let hoverClass = "";
 let selectedFinding = null;
 let previewToken = null;
+let previewAction = null;
 let pollTimer = null;
 let summaryCache = null;
 let scanRunning = false;
@@ -134,32 +135,78 @@ function renderVolumes() {
     const free = v.freeBytes || 0;
     const slices = v.totalBytes
       ? [
-          { key: "used", value: used, color: "#ff6b7a" },
+          { key: "used", value: used, color: v.protected ? "#7eb0ff" : "#ff6b7a" },
           { key: "free", value: free, color: "#4d5e73" },
         ]
       : [{ key: "unknown", value: 1, color: "#2a2638" }];
     const pct = v.totalBytes ? Math.round((used / v.totalBytes) * 100) : 0;
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = `drive${selected.has(v.path) ? " is-on" : ""}`;
-    btn.dataset.path = v.path;
-    btn.setAttribute("aria-pressed", selected.has(v.path) ? "true" : "false");
-    btn.setAttribute(
+    const card = document.createElement("div");
+    card.className = `drive${selected.has(v.path) ? " is-on" : ""}${v.protected ? " is-protected" : ""}`;
+    card.dataset.path = v.path;
+    const pick = document.createElement("button");
+    pick.type = "button";
+    pick.className = "drive-pick";
+    pick.setAttribute("aria-pressed", selected.has(v.path) ? "true" : "false");
+    pick.setAttribute(
       "aria-label",
-      `${v.id} ${v.label || kindLabel(v.kind)}${v.totalBytes ? `, ${pct}% full` : ""}. Click to ${selected.has(v.path) ? "skip" : "include"}.`,
+      `${v.id} ${v.label || kindLabel(v.kind)}${v.totalBytes ? `, ${pct}% full` : ""}${
+        v.protected ? ", protected archive" : ""
+      }. Click to ${selected.has(v.path) ? "skip" : "include"}.`,
     );
-    btn.innerHTML =
-      wheelMarkup(slices, { size: 148, label: v.id, sub: v.label || kindLabel(v.kind) }) +
-      `<div class="drive-meta"><b>${escapeHtml(kindLabel(v.kind))}${
+    pick.innerHTML =
+      wheelMarkup(slices, { size: 148, label: v.id, sub: v.protected ? "Archive" : v.label || kindLabel(v.kind) }) +
+      `<div class="drive-meta"><b>${escapeHtml(v.protected ? "Protected" : kindLabel(v.kind))}${
         v.totalBytes ? ` · ${pct}% full` : ""
-      }</b><small>${fmtBytes(free)} free</small></div>`;
-    btn.addEventListener("click", () => toggleDrive(v.path));
-    btn.addEventListener("pointerover", (ev) => {
+      }</b><small>${
+        v.protected ? "Mapped, never recommended for delete" : `${fmtBytes(free)} free`
+      }</small></div>`;
+    const protect = document.createElement("button");
+    protect.type = "button";
+    protect.className = "protect-btn";
+    protect.setAttribute("aria-pressed", v.protected ? "true" : "false");
+    protect.textContent = v.protected ? "Unprotect" : "Protect archive";
+    protect.title = v.protected
+      ? "SpaceTrash will start recommending deletes here again"
+      : "Keep mapping this drive, but never recommend deleting anything on it";
+    pick.addEventListener("click", () => toggleDrive(v.path));
+    pick.addEventListener("pointerover", (ev) => {
       const slice = ev.target.closest?.(".slice");
-      setWheelHot(btn, slice?.getAttribute("data-key") || null);
+      setWheelHot(pick, slice?.getAttribute("data-key") || null);
     });
-    btn.addEventListener("pointerleave", () => setWheelHot(btn, null));
-    box.appendChild(btn);
+    pick.addEventListener("pointerleave", () => setWheelHot(pick, null));
+    protect.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      void toggleProtect(v.path, !v.protected);
+    });
+    card.append(pick, protect);
+    box.appendChild(card);
+  }
+}
+
+function toggleDrive(path) {
+  if (selected.has(path)) selected.delete(path);
+  else selected.add(path);
+  renderVolumes();
+  markLiveDrives();
+}
+
+async function toggleProtect(path, on) {
+  try {
+    volumes = await api("/api/protected", { method: "PUT", body: { path, protected: on } });
+    renderVolumes();
+    markLiveDrives();
+    if (scanId) {
+      try {
+        await refreshResults();
+      } catch {
+        // last scan may have failed; the pinwheels still update
+      }
+    }
+    $("scanHint").textContent = on
+      ? "Protected archive — SpaceTrash will map it and will not recommend deleting anything here."
+      : "Drive unprotected. The next classification can recommend deletes here again.";
+  } catch (err) {
+    $("scanHint").textContent = err.message;
   }
 }
 
@@ -183,7 +230,8 @@ function markLiveDrives(currentPath = "") {
   for (const el of document.querySelectorAll(".drive")) {
     el.classList.toggle("is-on", selected.has(el.dataset.path));
     el.classList.toggle("is-live", live.has(el.dataset.path));
-    el.setAttribute("aria-pressed", selected.has(el.dataset.path) ? "true" : "false");
+    const pick = el.querySelector(".drive-pick");
+    pick?.setAttribute("aria-pressed", selected.has(el.dataset.path) ? "true" : "false");
   }
 }
 
@@ -249,6 +297,11 @@ async function loadStatus() {
   try {
     const s = await api("/api/status");
     $("statusLine").textContent = `${s.name} ${s.version} · ready`;
+    $("wipeBanner").classList.toggle("hidden", !s.needsScanWipe);
+    if (s.needsScanWipe) {
+      $("issues").innerHTML = `<p class="empty">Choose whether to clear old scan data after this update.</p>`;
+      return;
+    }
     if (s.activeScanId) {
       scanId = s.activeScanId;
       $("progressWrap").classList.remove("hidden");
@@ -273,6 +326,51 @@ async function loadVolumes() {
   volumes = await api("/api/volumes");
   selected = new Set(volumes.filter((v) => v.kind === "fixed").map((v) => v.path));
   renderVolumes();
+}
+
+async function loadArchive() {
+  const state = await api("/api/archive");
+  $("archiveRoot").value = state.root || "";
+  const list = $("archiveKinds");
+  if (!state.kinds?.length) {
+    list.innerHTML = `<li>No kind folders labeled yet.</li>`;
+    return;
+  }
+  list.innerHTML = state.kinds
+    .map((k) => `<li><b>${escapeHtml(k.name)}</b> — ${escapeHtml(k.path)}</li>`)
+    .join("");
+}
+
+async function saveArchiveRoot() {
+  const root = $("archiveRoot").value.trim();
+  if (!root) {
+    $("scanHint").textContent = "Type an archive root path first (not inside your user profile).";
+    return;
+  }
+  try {
+    await api("/api/archive", { method: "PUT", body: { root } });
+    await loadArchive();
+    $("scanHint").textContent = "Archive root saved. Leftovers can move here after Confirm.";
+    if (scanId) await refreshResults();
+  } catch (err) {
+    $("scanHint").textContent = err.message;
+  }
+}
+
+async function resolveWipe(wipe) {
+  try {
+    await api("/api/scan-data", { method: "POST", body: { wipe } });
+    $("wipeBanner").classList.add("hidden");
+    scanId = null;
+    summaryCache = null;
+    renderClassWheel();
+    $("issues").innerHTML = wipe
+      ? `<p class="empty">Scan data cleared. Scan again to classify with the new rules.</p>`
+      : `<p class="empty">Kept the old index. Scan again if findings look stale.</p>`;
+    await loadStatus();
+  } catch (err) {
+    $("scanHint").textContent = err.message;
+  }
 }
 
 async function startScan() {
@@ -329,7 +427,9 @@ async function pollScan() {
     if (job.status === "complete") {
       setScanControls(false);
       markLiveDrives();
-      $("scanHint").textContent = "Done. Hover the pinwheel to inspect a slice.";
+      $("scanHint").textContent = job.error
+        ? `Finished with warnings. ${job.error}`
+        : "Done. Hover the pinwheel to inspect a slice.";
       await refreshResults();
       return;
     }
@@ -338,7 +438,10 @@ async function pollScan() {
       markLiveDrives();
       $("progressText").textContent = job.error || job.status;
       $("scanHint").textContent =
-        job.status === "cancelled" ? "Stopped. Scan again whenever you like." : $("scanHint").textContent;
+        job.status === "cancelled"
+          ? "Stopped. Scan again whenever you like."
+          : "Scan failed. Try again — the last good result stays on the wheel if we have one.";
+      $("issues").innerHTML = `<p class="empty">${escapeHtml(job.error || "Scan failed.")}</p>`;
       return;
     }
     setScanControls(true);
@@ -366,9 +469,13 @@ async function refreshIssues() {
   const findings = await api(`/api/scans/${scanId}/findings${q}`);
   box.innerHTML = "";
   if (!findings.length) {
-    box.innerHTML = `<p class="empty">${
-      cls ? "Nothing in this slice. Try another, or scan a different drive." : "No issues in this filter. That can be good."
-    }</p>`;
+    const empty =
+      cls
+        ? "Nothing in this slice. Try another, or scan a different drive."
+        : summaryCache && summaryCache.filesSeen > 100 && summaryCache.bytesSeen === 0
+          ? "The scan did not index files. Try Scan again."
+          : "No issues in this filter. That can be good.";
+    box.innerHTML = `<p class="empty">${empty}</p>`;
     return;
   }
   for (const f of findings) {
@@ -403,30 +510,64 @@ function openDrawer(open) {
 async function openFinding(id) {
   selectedFinding = await api(`/api/findings/${id}`);
   previewToken = null;
+  previewAction = null;
   $("confirmBtn").classList.add("hidden");
   $("dPreview").classList.add("hidden");
   $("dTitle").textContent = selectedFinding.title;
   $("dMeta").textContent = `${selectedFinding.class} · ${selectedFinding.action} · risk ${selectedFinding.risk} · ${Math.round(selectedFinding.confidence * 100)}% confident · ${fmtBytes(selectedFinding.bytes)}`;
   $("dWhy").textContent = selectedFinding.why;
   $("dPaths").innerHTML = selectedFinding.paths.map((p) => `<li>${escapeHtml(p)}</li>`).join("");
+  const allowed = selectedFinding.allowedActions || [selectedFinding.action];
   $("previewBtn").disabled = selectedFinding.status === "applied";
-  $("confirmBtn").textContent = selectedFinding.action === "recycle" ? "Confirm recycle" : "Confirm (preview-only)";
+  $("previewBtn").textContent =
+    selectedFinding.action === "label"
+      ? "Preview label"
+      : selectedFinding.action === "archive"
+        ? "Preview move"
+        : "Preview recycle";
+  $("recyclePreviewBtn").classList.toggle("hidden", !allowed.includes("recycle") || selectedFinding.action === "recycle");
+  $("drawerRootWrap").classList.toggle("hidden", !selectedFinding.needsArchiveRoot);
+  $("drawerArchiveRoot").value = $("archiveRoot").value;
+  $("confirmBtn").textContent = "Confirm";
   openDrawer(true);
 }
 
-async function doPreview() {
+async function doPreview(action) {
   if (!selectedFinding) return;
+  const chosen = typeof action === "string" ? action : selectedFinding.action;
   try {
-    const preview = await api(`/api/findings/${selectedFinding.id}/preview`, { method: "POST", body: {} });
+    const archiveRoot = $("drawerArchiveRoot").value.trim() || $("archiveRoot").value.trim() || undefined;
+    const preview = await api(`/api/findings/${selectedFinding.id}/preview`, {
+      method: "POST",
+      body: { action: chosen, archiveRoot },
+    });
     previewToken = preview.token;
+    previewAction = preview.action;
     $("dPreview").classList.remove("hidden");
-    $("dPreview").textContent =
-      `Action: ${preview.action}\nExpires: ${new Date(preview.expiresAt).toLocaleTimeString()}\nPaths:\n` +
-      preview.paths.map((p) => `  ${p}`).join("\n") +
-      (preview.action === "archive"
-        ? "\n\nArchive apply is preview-only in v1. Nothing will be moved."
-        : "\n\nConfirm sends these items to the Recycle Bin. They are not hard-deleted.");
-    $("confirmBtn").classList.toggle("hidden", preview.action !== "recycle");
+    const lines = [
+      `Action: ${preview.action}`,
+      `Expires: ${new Date(preview.expiresAt).toLocaleTimeString()}`,
+      preview.destPath ? `Destination: ${preview.destPath}` : "",
+      "Paths:",
+      ...preview.paths.map((p) => `  ${p}`),
+    ].filter(Boolean);
+    if (preview.action === "recycle") {
+      lines.push("", "Confirm sends these items to the Recycle Bin. They are not hard-deleted.");
+    } else if (preview.action === "label") {
+      lines.push("", "Confirm labels this folder as an archive. Files already in it stay put.");
+    } else if (preview.action === "archive" && selectedFinding.kind) {
+      lines.push("", "Confirm moves these files into the archive folder.");
+    } else {
+      lines.push("", "This archive action is preview-only unless it is a labeled installer or disk-image tidy-up.");
+    }
+    $("dPreview").textContent = lines.join("\n");
+    const canConfirm =
+      preview.action === "recycle" ||
+      preview.action === "label" ||
+      (preview.action === "archive" && selectedFinding.kind);
+    $("confirmBtn").classList.toggle("hidden", !canConfirm);
+    $("confirmBtn").textContent =
+      preview.action === "recycle" ? "Confirm recycle" : preview.action === "label" ? "Confirm label" : "Confirm move";
   } catch (err) {
     $("dPreview").classList.remove("hidden");
     $("dPreview").textContent = err.message;
@@ -441,6 +582,7 @@ async function doConfirm() {
     $("dPreview").textContent = JSON.stringify(result, null, 2);
     $("confirmBtn").classList.add("hidden");
     await refreshResults();
+    await loadArchive();
   } catch (err) {
     $("dPreview").textContent = err.message;
   } finally {
@@ -450,9 +592,13 @@ async function doConfirm() {
 
 $("scanBtn").addEventListener("click", startScan);
 $("stopBtn").addEventListener("click", stopScan);
+$("saveArchiveRoot").addEventListener("click", () => void saveArchiveRoot());
+$("wipeScanBtn").addEventListener("click", () => void resolveWipe(true));
+$("keepScanBtn").addEventListener("click", () => void resolveWipe(false));
 $("closeDrawer").addEventListener("click", () => openDrawer(false));
 $("backdrop").addEventListener("click", () => openDrawer(false));
-$("previewBtn").addEventListener("click", doPreview);
+$("previewBtn").addEventListener("click", () => void doPreview());
+$("recyclePreviewBtn").addEventListener("click", () => void doPreview("recycle"));
 $("confirmBtn").addEventListener("click", doConfirm);
 document.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape") openDrawer(false);
@@ -470,6 +616,7 @@ $("filters").addEventListener("click", (ev) => {
 bindClassHover();
 renderClassWheel();
 loadStatus();
+loadArchive().catch(() => undefined);
 loadVolumes().catch((err) => {
   $("volumes").innerHTML = `<p class="empty">${escapeHtml(err.message)}</p>`;
 });

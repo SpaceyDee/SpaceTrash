@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, rm, writeFile, utimes } from "node:fs/promises";
+import { mkdir, rm, writeFile, utimes, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, before, describe, it } from "node:test";
@@ -80,6 +80,69 @@ describe("engine fixture scan", () => {
     assert.equal(notes, false, "keep file should not be in findings");
   });
 
+  it("does not recommend deleting files on a protected archive root", async () => {
+    const archive = join(fixture, "..", "archive-drive");
+    await mkdir(archive, { recursive: true });
+    const stale = join(archive, "old-backup.bin");
+    await writeFile(stale, Buffer.alloc(128 * 1024, 5));
+    const past = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000);
+    await utimes(stale, past, past);
+    const engine = createEngine();
+    await engine.setProtected(archive, true);
+    const job = engine.startScan({
+      roots: [fixture, archive],
+      installerMinBytes: 1024,
+      largeMinBytes: 50 * 1024,
+      unusedDays: 30,
+    });
+    const done = await waitForScan(engine, job.id);
+    assert.equal(done.status, "complete", done.error);
+    const findings = engine.findings(job.id);
+    const dump = findings.map((f) => `${f.title}:${f.paths.join(",")}`).join(" | ");
+    assert.equal(
+      findings.some((f) => f.paths.some((p) => p.toLowerCase().includes("old-backup.bin"))),
+      false,
+      dump,
+    );
+    assert.ok(
+      findings.some((f) => f.title.toLowerCase().includes("scratch") || f.title.toLowerCase().includes("downloads\\tmp")),
+      dump,
+    );
+    await engine.setProtected(archive, false);
+  });
+
+  it("clears archive findings when a root is protected after the scan", async () => {
+    const archive = join(fixture, "..", "archive-drive");
+    await mkdir(archive, { recursive: true });
+    const stale = join(archive, "old-backup.bin");
+    await writeFile(stale, Buffer.alloc(128 * 1024, 5));
+    const past = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000);
+    await utimes(stale, past, past);
+    const engine = createEngine();
+    await engine.setProtected(archive, false);
+    const job = engine.startScan({
+      roots: [archive],
+      installerMinBytes: 1024,
+      largeMinBytes: 50 * 1024,
+      unusedDays: 30,
+    });
+    const done = await waitForScan(engine, job.id);
+    assert.equal(done.status, "complete", done.error);
+    const before = engine.findings(job.id);
+    assert.ok(
+      before.some((f) => f.paths.some((p) => p.toLowerCase().includes("old-backup.bin"))),
+      before.map((f) => f.title).join(" | "),
+    );
+    await engine.setProtected(archive, true);
+    const after = engine.findings(job.id);
+    assert.equal(
+      after.some((f) => f.paths.some((p) => p.toLowerCase().includes("old-backup.bin"))),
+      false,
+      after.map((f) => `${f.title}:${f.paths.join(",")}`).join(" | "),
+    );
+    await engine.setProtected(archive, false);
+  });
+
   it("indexes files from every selected root", async () => {
     const a = join(fixture, "..", "root-a");
     const b = join(fixture, "..", "root-b");
@@ -137,5 +200,153 @@ describe("engine fixture scan", () => {
     assert.ok(stale);
     assert.equal(stale.status, "cancelled");
     assert.match(stale.error ?? "", /exited|Interrupted/i);
+  });
+});
+
+describe("archive tidy-up", () => {
+  const tidyRoot = join(repoRoot, "fixtures", "archive-tidy-generated");
+  const hot = join(tidyRoot, "profile");
+  const cold = join(tidyRoot, "stash");
+  const pair = join(tidyRoot, "pair");
+  const archiveRoot = join(tidyRoot, "archive-root");
+  const prevHot = process.env.SPACETRASH_HOT_ZONE;
+
+  before(async () => {
+    process.env.SPACETRASH_HOT_ZONE = hot;
+    await mkdir(join(hot, "Desktop"), { recursive: true });
+    await mkdir(cold, { recursive: true });
+    await mkdir(pair, { recursive: true });
+    await mkdir(archiveRoot, { recursive: true });
+    await writeFile(join(hot, "Desktop", "leftover.iso"), Buffer.alloc(64 * 1024, 1));
+    await writeFile(join(hot, "Desktop", "cuda_setup.msi"), Buffer.alloc(64 * 1024, 2));
+    await writeFile(join(cold, "a.iso"), Buffer.alloc(64 * 1024, 3));
+    await writeFile(join(cold, "b.iso"), Buffer.alloc(64 * 1024, 4));
+    await writeFile(join(cold, "c.iso"), Buffer.alloc(64 * 1024, 5));
+    await writeFile(join(pair, "x.iso"), Buffer.alloc(64 * 1024, 6));
+    await writeFile(join(pair, "y.iso"), Buffer.alloc(64 * 1024, 7));
+  });
+
+  after(() => {
+    if (prevHot === undefined) delete process.env.SPACETRASH_HOT_ZONE;
+    else process.env.SPACETRASH_HOT_ZONE = prevHot;
+  });
+
+  function scanOpts(roots: string[]) {
+    return { roots, installerMinBytes: 1024, largeMinBytes: 50 * 1024, unusedDays: 30 };
+  }
+
+  it("labels a cold disk-image cluster and does not treat the profile as an archive", async () => {
+    const engine = createEngine();
+    const job = engine.startScan(scanOpts([hot, cold]));
+    const done = await waitForScan(engine, job.id);
+    assert.equal(done.status, "complete", done.error);
+    const findings = engine.findings(job.id);
+    const dump = findings.map((f) => `${f.action}:${f.title}:${f.paths.join(",")}`).join(" | ");
+    const label = findings.find((f) => f.action === "label" && f.kind === "disk-images");
+    assert.ok(label, dump);
+    assert.equal(
+      label.paths.some((p) => p.toLowerCase().includes("leftover.iso")),
+      false,
+      dump,
+    );
+    assert.ok(
+      label.paths.some((p) => p.toLowerCase().endsWith("a.iso")),
+      dump,
+    );
+    const hotIso = findings.find((f) => f.paths.some((p) => p.toLowerCase().endsWith("leftover.iso")));
+    assert.ok(hotIso, dump);
+    assert.notEqual(hotIso.action, "label", dump);
+    assert.ok(hotIso.allowedActions?.includes("recycle"), dump);
+    assert.ok(hotIso.allowedActions?.includes("archive"), dump);
+  });
+
+  it("does not label a cold folder with only two disk images", async () => {
+    const engine = createEngine();
+    const job = engine.startScan(scanOpts([pair]));
+    const done = await waitForScan(engine, job.id);
+    assert.equal(done.status, "complete", done.error);
+    const findings = engine.findings(job.id);
+    assert.equal(
+      findings.some((f) => f.action === "label"),
+      false,
+      findings.map((f) => f.title).join(" | "),
+    );
+  });
+
+  it("moves a profile leftover into the labeled disk-images folder after confirm", async () => {
+    const engine = createEngine();
+    engine.setArchiveRoot(archiveRoot);
+    engine.setKindFolder("disk-images", cold);
+    const job = engine.startScan(scanOpts([hot, cold, archiveRoot]));
+    const done = await waitForScan(engine, job.id);
+    assert.equal(done.status, "complete", done.error);
+    const findings = engine.findings(job.id);
+    const dump = findings.map((f) => `${f.action}:${f.title}:${f.paths.join(",")}`).join(" | ");
+    const move = findings.find((f) => f.paths.some((p) => p.toLowerCase().endsWith("leftover.iso")));
+    assert.ok(move, dump);
+    assert.equal(move.action, "archive", dump);
+    assert.equal(
+      findings.some((f) => f.paths.some((p) => p.toLowerCase().endsWith("a.iso")) && f.action !== "label"),
+      false,
+      dump,
+    );
+    const msi = findings.find((f) => f.paths.some((p) => p.toLowerCase().endsWith("cuda_setup.msi")));
+    assert.ok(msi, dump);
+    assert.notEqual(msi.kind, "disk-images", dump);
+
+    const preview = engine.preview(move.id, { action: "archive" });
+    assert.equal(preview.action, "archive");
+    const result = await engine.apply(preview.token, true);
+    assert.equal(result.moved.length, 1, JSON.stringify(result));
+    const dest = join(cold, "leftover.iso");
+    await stat(dest);
+    await assert.rejects(() => stat(join(hot, "Desktop", "leftover.iso")));
+  });
+
+  it("suffixes the destination when the archive already has that name", async () => {
+    await writeFile(join(hot, "Desktop", "leftover.iso"), Buffer.alloc(64 * 1024, 8));
+    await writeFile(join(cold, "leftover.iso"), Buffer.alloc(32, 9));
+    const engine = createEngine();
+    engine.setArchiveRoot(archiveRoot);
+    engine.setKindFolder("disk-images", cold);
+    const job = engine.startScan(scanOpts([hot, cold]));
+    const done = await waitForScan(engine, job.id);
+    assert.equal(done.status, "complete", done.error);
+    const move = engine.findings(job.id).find((f) => f.paths.some((p) => p.toLowerCase().includes("desktop") && p.toLowerCase().endsWith("leftover.iso")));
+    assert.ok(move);
+    const preview = engine.preview(move.id, { action: "archive" });
+    const result = await engine.apply(preview.token, true);
+    assert.equal(result.moved.length, 1, JSON.stringify(result));
+    await stat(join(cold, "leftover (1).iso"));
+  });
+
+  it("refuses a deny-listed path and apply without confirm", async () => {
+    const engine = createEngine();
+    engine.setArchiveRoot(archiveRoot);
+    const job = engine.startScan(scanOpts([hot]));
+    const done = await waitForScan(engine, job.id);
+    assert.equal(done.status, "complete", done.error);
+    const move = engine.findings(job.id).find((f) => f.action === "archive" || f.allowedActions?.includes("archive"));
+    assert.ok(move);
+    const preview = engine.preview(move.id, { action: "archive" });
+    await assert.rejects(() => engine.apply(preview.token, false), /confirm/);
+    await assert.rejects(() => engine.apply("not-a-token", true), /unknown/);
+  });
+
+  it("clears scan index but keeps archive kind folders on disk", async () => {
+    const engine = createEngine();
+    engine.setArchiveRoot(archiveRoot);
+    engine.setKindFolder("disk-images", cold);
+    const job = engine.startScan(scanOpts([cold]));
+    await waitForScan(engine, job.id);
+    engine.clearScanData();
+    const db = openDb();
+    const scans = db.prepare(`SELECT COUNT(*) AS n FROM scans`).get() as { n: number };
+    const inv = db.prepare(`SELECT COUNT(*) AS n FROM inventory`).get() as { n: number };
+    assert.equal(Number(scans.n), 0);
+    assert.equal(Number(inv.n), 0);
+    const state = engine.archiveState();
+    assert.equal(state.kinds.some((k) => k.kind === "disk-images"), true);
+    await stat(join(cold, "a.iso"));
   });
 });

@@ -49,6 +49,12 @@ python scripts/publish-update.py --setup
 
 v0.1.0 installs do not contain the updater — install 0.1.1 once, then later versions can apply themselves.
 
+From 0.1.8, leftover installers and disk images in your user profile are tidy-up (move to a labeled archive) or Recycle, both behind Confirm. A folder of 3+ similar files outside the profile can be labeled as an archive. Updates recommend clearing old scan data.
+
+From 0.1.7, each drive pinwheel has **Protect archive**: SpaceTrash still maps the disk, but will not recommend deleting anything on it. Toggle it on an existing scan to drop those findings without walking the drive again.
+
+From 0.1.6, a drive is never stored as its own parent, so incremental scans cannot loop until the worker runs out of memory and then report an empty “complete” result.
+
 From 0.1.5, drives and scan results are pinwheels: hover a slice to grow it, click a drive to include it, and a tracking bead shows scan progress.
 
 From 0.1.4, worker results are applied in short slices on the UI thread so the window stays responsive (and Stop works) while several drives write into SQLite at once.

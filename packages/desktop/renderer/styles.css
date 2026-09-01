@@ -90,6 +90,25 @@ h3 { margin: 18px 0 8px; font-size: 13px; color: var(--hush); }
   border: 1px solid transparent;
 }
 
+.wipe-banner {
+  margin: 0 32px 8px;
+  padding: 14px 18px;
+  border-radius: 22px;
+  background: rgba(126, 176, 255, 0.12);
+  border: 1px solid rgba(126, 176, 255, 0.28);
+}
+.wipe-banner p { margin: 0 0 10px; font-size: 14px; }
+.wipe-banner .row { gap: 10px; }
+
+.archive-kinds {
+  list-style: none;
+  padding: 8px 0 0;
+  margin: 0;
+  font-size: 12px;
+  color: var(--hush);
+}
+.archive-kinds li { margin: 4px 0; }
+
 .deck, .atlas { padding: 12px 32px 24px; }
 .deck-head { margin-bottom: 14px; }
 .deck-head .muted { margin: 0; font-size: 13px; }
@@ -111,19 +130,50 @@ h3 { margin: 18px 0 8px; font-size: 13px; color: var(--hush); }
   background: transparent;
   color: inherit;
   text-align: center;
-  cursor: pointer;
   border-radius: 28px;
   transition: transform 0.45s var(--spring), background 0.35s var(--soft);
 }
-.drive:hover, .drive:focus-visible {
+.drive-pick {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+.drive-pick:focus-visible { outline: none; }
+.drive:hover, .drive:focus-within {
   transform: translateY(-6px) scale(1.04);
   background: rgba(42, 38, 56, 0.55);
-  outline: none;
 }
 .drive.is-on { background: rgba(78, 224, 200, 0.08); }
+.drive.is-protected { background: rgba(126, 176, 255, 0.1); }
+.drive.is-protected.is-on { background: rgba(126, 176, 255, 0.16); }
 .drive-meta { margin-top: 2px; }
 .drive-meta b { display: block; font-family: Sora, sans-serif; font-size: 15px; }
 .drive-meta small { color: var(--hush); font-size: 12px; }
+.protect-btn {
+  margin-top: 8px;
+  border: 1px solid rgba(239, 232, 255, 0.12);
+  background: rgba(20, 18, 28, 0.55);
+  color: var(--hush);
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  padding: 5px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.protect-btn:hover, .protect-btn:focus-visible {
+  color: var(--frost);
+  border-color: rgba(126, 176, 255, 0.55);
+  outline: none;
+}
+.drive.is-protected .protect-btn {
+  color: #7eb0ff;
+  border-color: rgba(126, 176, 255, 0.45);
+}
 
 .wheel {
   position: relative;

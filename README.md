@@ -1,6 +1,6 @@
 # SpaceTrash
 
-Scan disks, classify what is removable / bloat / archiveable / keep, then fix each issue with **Preview → Confirm**. Nothing is deleted or moved until you confirm. Confirmed items go to the Recycle Bin (Trash on macOS/Linux).
+Scan disks, classify what is removable / bloat / archiveable / keep, then fix each issue with **Preview → Confirm**. Nothing is deleted or moved until you confirm. Recycle goes to the Recycle Bin. Confirmed installer/ISO tidy-ups move into your archive folders.
 
 Independent of Pulsar. Pulsar (or Cursor, or any MCP client) can attach it as a tool. See [docs/PULSAR.md](docs/PULSAR.md).
 
@@ -19,10 +19,11 @@ v0.1 is Windows-first. macOS and Linux installers are produced by the release wo
 
 ## Safety
 
-- Protected paths (Windows, Program Files, `/usr`, `/System`, pagefile, Recycle Bin, …) are never proposed for delete.
+- Protected OS paths (Windows, Program Files, `/usr`, `/System`, pagefile, Recycle Bin, …) are never proposed for delete.
+- Archive drives you mark **Protect** are still scanned, but SpaceTrash will not recommend deleting anything on them.
+- Leftover installers and disk images in your user profile can be moved into labeled archive folders after Confirm. Large unused-file archives stay preview-only.
 - Junctions / reparse points are not followed.
 - Apply without a preview token, or without `confirm: true`, is rejected.
-- Archive findings are preview-only in v1.
 - Closing the app cancels any scan in progress so the next launch is clean.
 
 ## Run from source

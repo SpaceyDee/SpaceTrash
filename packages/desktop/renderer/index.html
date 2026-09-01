@@ -36,11 +36,22 @@
       <div class="telemetry" id="statusLine">Waking up…</div>
     </header>
 
+    <div id="wipeBanner" class="wipe-banner hidden" role="status">
+      <p>
+        SpaceTrash updated. Recommended: clear old scan data so new rules re-classify.
+        Your archive folders on disk stay put.
+      </p>
+      <div class="row">
+        <button type="button" class="primary blob" id="wipeScanBtn">Clear scan data</button>
+        <button type="button" class="blob" id="keepScanBtn">Keep scan data</button>
+      </div>
+    </div>
+
     <main>
       <section class="deck">
         <div class="deck-head">
           <h2>Your drives</h2>
-          <p class="muted">Click a pinwheel to include it. Hover a slice to peek at used vs free.</p>
+          <p class="muted">Click a pinwheel to include it. Protect an archive drive so SpaceTrash maps it but never recommends deleting it.</p>
         </div>
         <div id="volumes" class="orbit-row" role="group" aria-label="Drives">Loading drives…</div>
 
@@ -59,6 +70,16 @@
                 <span class="sr-only">Folder path</span>
                 <input id="folderOverride" type="text" placeholder="G:\Projects\example" />
               </label>
+            </details>
+            <details class="folder-more">
+              <summary>Archive root</summary>
+              <p class="muted">Leftover installers and disk images from your profile can move here after Confirm.</p>
+              <label class="folder">
+                <span class="sr-only">Archive root path</span>
+                <input id="archiveRoot" type="text" placeholder="G:\Archives" />
+              </label>
+              <button type="button" class="blob" id="saveArchiveRoot">Save archive root</button>
+              <ul id="archiveKinds" class="archive-kinds"></ul>
             </details>
           </div>
           <div class="tracker hidden" id="progressWrap">
@@ -102,10 +123,15 @@
         <h2 id="dTitle"></h2>
         <p class="muted" id="dMeta"></p>
         <p id="dWhy"></p>
+        <label class="folder hidden" id="drawerRootWrap">
+          <span>Archive root (required for this move)</span>
+          <input id="drawerArchiveRoot" type="text" placeholder="G:\Archives" />
+        </label>
         <h3>Paths</h3>
         <ul id="dPaths"></ul>
         <div class="row">
           <button type="button" class="primary blob" id="previewBtn">Preview</button>
+          <button type="button" class="blob hidden" id="recyclePreviewBtn">Preview recycle</button>
           <button type="button" class="danger blob hidden" id="confirmBtn">Confirm recycle</button>
         </div>
         <pre id="dPreview" class="preview hidden"></pre>

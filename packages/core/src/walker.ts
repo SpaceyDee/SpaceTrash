@@ -266,6 +266,7 @@ export async function walkRoots(
       const worker = new Worker(workerPath, {
         workerData: { root: root.root, dbPath } satisfies WalkWorkerData,
         execArgv: workerExecArgv(workerPath),
+        resourceLimits: { maxOldGenerationSizeMb: 4096 },
       });
       workers.push(worker);
       let settled = false;

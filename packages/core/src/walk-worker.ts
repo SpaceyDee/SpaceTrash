@@ -1,11 +1,11 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { lstat, opendir } from "node:fs/promises";
 import type { Dir } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import Database from "better-sqlite3";
 import { isDeniedForScan } from "./deny.ts";
-import { extOf, normalizePath } from "./paths.ts";
-import { getInventory, listChildDirs, listInventoryChildren } from "./db.ts";
+import { extOf, normalizePath, parentPath, pathEquals } from "./paths.ts";
+import { getInventory, inventoryChildStats, listChildDirs, listInventoryChildren } from "./db.ts";
 import type { WalkFileRow, WalkWorkerData, WalkWorkerOut } from "./walk-messages.ts";
 
 const port = parentPort;
@@ -102,14 +102,15 @@ async function visit(dir: string, isRoot: boolean): Promise<void> {
   const mtimeMs = Math.floor(st.mtimeMs);
   const cached = getInventory(db, n);
   if (cached && cached.is_dir === 1 && cached.checked === 1 && cached.mtime_ms === mtimeMs) {
-    const kids = listInventoryChildren(db, n);
+    const stats = inventoryChildStats(db, n);
     send({ type: "skipDir", parent: n });
-    filesSeen += kids.length;
-    filesSkipped += kids.length;
-    bytesSeen += kids.filter((k) => k.is_dir === 0).reduce((sum, k) => sum + k.size, 0);
-    tick(n, true);
+    filesSeen += Number(stats.rows);
+    filesSkipped += Number(stats.rows);
+    bytesSeen += Number(stats.bytes);
+    tick(n);
     for (const child of listChildDirs(db, n)) {
       if (cancelled) return;
+      if (pathEquals(child, n)) continue;
       await visit(child, false);
     }
     return;
@@ -178,7 +179,7 @@ async function visit(dir: string, isRoot: boolean): Promise<void> {
   send({
     type: "markChecked",
     path: n,
-    parent: normalizePath(dirname(n)),
+    parent: parentPath(n),
     name: n.split(/[/\\]/).filter(Boolean).pop() ?? n,
     size: st.size,
     mtime_ms: mtimeMs,

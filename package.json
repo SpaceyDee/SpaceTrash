@@ -1,6 +1,6 @@
 {
   "name": "spacetrash",
-  "version": "0.1.5",
+  "version": "0.1.8",
   "private": true,
   "type": "module",
   "description": "Windows disk optimiser: scan, classify, confirm-to-act. Independent; Pulsar attaches via MCP.",

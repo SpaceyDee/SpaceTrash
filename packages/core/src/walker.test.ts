@@ -113,6 +113,15 @@ describe("incremental walk", () => {
     assert.ok(last && last.a > 0 && last.b > 0, `both roots should finish walking: ${JSON.stringify(snaps)}`);
   });
 
+  it("does not loop when a folder is stored as its own inventory parent", { timeout: 20_000 }, async () => {
+    const db = openDb();
+    const root = (await import("./paths.ts")).normalizePath(tree);
+    db.prepare(`UPDATE inventory SET parent = path WHERE path = ?`).run(root);
+    const looped = await walkRoots(db, "scan_self_parent", [tree], () => undefined, () => false);
+    assert.equal(looped.errors.length, 0, looped.errors.map((e) => e.message).join("; "));
+    assert.ok(filePaths("scan_self_parent").some((p) => p.endsWith("notes.txt")));
+  });
+
   it("reports every selected root in progress", async () => {
     const a = join(tree, "..", "walk-a");
     const b = join(tree, "..", "walk-b");

@@ -15,6 +15,7 @@ coverage/
 fixtures/safe-scan-generated/
 fixtures/walk-generated/
 fixtures/ui-preview/
+fixtures/archive-tidy-generated/
 packages/desktop/build/
 scripts/*.ppm
 scripts/*.png

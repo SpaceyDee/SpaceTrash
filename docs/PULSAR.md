@@ -41,6 +41,9 @@ From a global install of the repo you can also run `npm run mcp` in that working
 |---|---|
 | `spacetrash_status` | Engine version, data dir, active scan |
 | `spacetrash_list_volumes` | Drives |
+| `spacetrash_protect_root` | Mark a drive/folder as a protected archive |
+| `spacetrash_archive_state` | Archive root and kind folders |
+| `spacetrash_set_archive_root` | Set the tidy-up archive root |
 | `spacetrash_start_scan` | Start a scan (no deletes) |
 | `spacetrash_scan_status` | Progress |
 | `spacetrash_list_findings` | Issues |
@@ -48,7 +51,7 @@ From a global install of the repo you can also run `npm run mcp` in that working
 | `spacetrash_preview_action` | Returns a one-time token |
 | `spacetrash_apply_action` | Requires `token` + `confirm: true` |
 
-Apply without a preview token is rejected. Archive findings are preview-only in v1.
+Apply without a preview token is rejected. Installer/ISO tidy-ups can move after confirm. Large unused-file archives stay preview-only.
 
 ## 4. HTTP for non-MCP agents
 
@@ -56,6 +59,10 @@ Same contract as the UI:
 
 - `GET /api/status`
 - `GET /api/volumes`
+- `PUT /api/protected` `{ "path": "E:\\", "protected": true }`
+- `GET /api/archive`
+- `PUT /api/archive` `{ "root": "G:\\Archives" }`
+- `POST /api/scan-data` `{ "wipe": true }`
 - `POST /api/scans` `{ "roots": ["C:\\"] }`
 - `GET /api/scans/:id`
 - `GET /api/scans/:id/summary`

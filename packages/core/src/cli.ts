@@ -14,6 +14,23 @@ program.command("volumes").action(async () => {
 });
 
 program
+  .command("protect")
+  .argument("<path>", "Drive or folder to treat as an archive")
+  .option("--off", "Remove protection")
+  .action(async (path: string, opts: { off?: boolean }) => {
+    console.log(JSON.stringify(await getEngine().setProtected(path, !opts.off), null, 2));
+  });
+
+program
+  .command("archive-root")
+  .argument("[path]", "Folder that will hold Disk images / Installers")
+  .action((path?: string) => {
+    const engine = getEngine();
+    if (path) console.log(JSON.stringify(engine.setArchiveRoot(path), null, 2));
+    else console.log(JSON.stringify(engine.archiveState(), null, 2));
+  });
+
+program
   .command("scan")
   .option("-r, --root <path>", "Scan root (repeatable)", (v: string, acc: string[]) => {
     acc.push(v);

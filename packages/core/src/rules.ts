@@ -1,8 +1,19 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
+import { basename } from "node:path";
 import type Database from "better-sqlite3";
-import type { ActionKind, Finding, FindingClass, Risk, ScanOptions } from "./types.ts";
-import { insertFinding, markClassified } from "./db.ts";
+import type { ActionKind, ArchiveKind, Finding, FindingClass, Risk, ScanOptions } from "./types.ts";
+import {
+  getArchiveRoot,
+  insertFinding,
+  listArchiveKinds,
+  listProtectedRoots,
+  markClassified,
+  pathInProtectedRoots,
+} from "./db.ts";
 import { isDeniedForAction } from "./deny.ts";
+import { CLUSTER_MIN, fileKind, isHotZonePath, kindTitle } from "./archive.ts";
+import { pathIsUnder } from "./paths.ts";
 
 interface FileRow {
   path: string;
@@ -23,10 +34,16 @@ function takePaths(paths: string[], limit = 40): string[] {
   return paths.slice(0, limit);
 }
 
-function claim(db: Database.Database, scanId: string, paths: string[], cls: FindingClass): string[] {
+function claim(
+  db: Database.Database,
+  scanId: string,
+  paths: string[],
+  cls: FindingClass,
+  protectedRoots: string[],
+): string[] {
   const kept: string[] = [];
   for (const p of paths) {
-    if (isDeniedForAction(p)) continue;
+    if (isDeniedForAction(p) || pathInProtectedRoots(p, protectedRoots)) continue;
     if (markClassified(db, scanId, p, cls)) kept.push(p);
   }
   return kept;
@@ -38,6 +55,15 @@ function bytesFor(rows: FileRow[], claimed: Set<string>): number {
     if (claimed.has(row.path)) n += row.size;
   }
   return n;
+}
+
+function claimKind(db: Database.Database, scanId: string, paths: string[], cls: FindingClass): string[] {
+  const kept: string[] = [];
+  for (const p of paths) {
+    if (isDeniedForAction(p)) continue;
+    if (markClassified(db, scanId, p, cls)) kept.push(p);
+  }
+  return kept;
 }
 
 function makeFinding(
@@ -52,6 +78,7 @@ function makeFinding(
   why: string,
   paths: string[],
   bytes: number,
+  extra: Partial<Finding> = {},
 ): Finding {
   return {
     id: findingId(scanId, rule, key),
@@ -59,18 +86,170 @@ function makeFinding(
     title,
     class: cls,
     bytes,
-    fileCount: paths.length,
+    fileCount: extra.fileCount ?? paths.length,
     confidence,
     why,
     paths: takePaths(paths),
     action,
     risk,
     status: "open",
+    ...extra,
   };
 }
 
 function queryFiles(db: Database.Database, sql: string, ...params: unknown[]): FileRow[] {
   return db.prepare(sql).all(...params) as FileRow[];
+}
+
+function classifyKindArchives(
+  db: Database.Database,
+  scanId: string,
+  installerMin: number,
+  cutoff: number,
+  push: (f: Finding) => void,
+): void {
+  const labeled = new Map(listArchiveKinds(db).map((row) => [row.kind, row.path] as const));
+  const archiveRoot = getArchiveRoot(db);
+  const rows = queryFiles(
+    db,
+    `SELECT * FROM files WHERE scan_id = ? AND is_dir = 0 AND size >= ?`,
+    scanId,
+    installerMin,
+  );
+
+  for (const kind of ["disk-images", "installers"] as ArchiveKind[]) {
+    const folder = labeled.get(kind) ?? null;
+    if (folder && !existsSync(folder)) {
+      push(
+        makeFinding(
+          scanId,
+          "arch-missing",
+          kind,
+          `${kindTitle(kind)} archive folder is gone`,
+          "archiveable",
+          "label",
+          "medium",
+          0.9,
+          "The saved archive folder is missing or unmounted. Pick it again or recreate it. Files already archived are not recycled.",
+          [folder],
+          0,
+          { kind, allowedActions: ["label"], destPath: folder },
+        ),
+      );
+    }
+  }
+
+  const byKind = new Map<ArchiveKind, FileRow[]>();
+  for (const row of rows) {
+    const kind = fileKind(row.name, row.ext);
+    if (!kind) continue;
+    const folder = labeled.get(kind);
+    if (folder && existsSync(folder) && pathIsUnder(row.path, folder)) {
+      markClassified(db, scanId, row.path, "keep");
+      continue;
+    }
+    const list = byKind.get(kind) ?? [];
+    list.push(row);
+    byKind.set(kind, list);
+  }
+
+  for (const [kind, files] of byKind) {
+    const folder = labeled.get(kind);
+    const folderOk = Boolean(folder && existsSync(folder));
+    const hot: FileRow[] = [];
+    const coldByParent = new Map<string, FileRow[]>();
+    for (const f of files) {
+      if (isHotZonePath(f.path)) hot.push(f);
+      else {
+        const group = coldByParent.get(f.parent) ?? [];
+        group.push(f);
+        coldByParent.set(f.parent, group);
+      }
+    }
+
+    if (!folderOk) {
+      for (const [parent, group] of coldByParent) {
+        if (group.length < CLUSTER_MIN) continue;
+        const claimed = claimKind(db, scanId, group.map((f) => f.path), "archiveable");
+        if (!claimed.length) continue;
+        push(
+          makeFinding(
+            scanId,
+            "arch-label",
+            `${kind}:${parent}`,
+            `This looks like a ${kindTitle(kind)} archive`,
+            "archiveable",
+            "label",
+            "low",
+            0.8,
+            `A folder outside your profile holds ${group.length} ${kindTitle(kind).toLowerCase()}. Confirm to label it so leftovers elsewhere can be moved here instead of recycled.`,
+            claimed,
+            bytesFor(group, new Set(claimed)),
+            { kind, allowedActions: ["label"], destPath: parent },
+          ),
+        );
+      }
+    }
+
+    const moveRows: FileRow[] = [...hot];
+    if (folderOk) {
+      for (const group of coldByParent.values()) {
+        for (const f of group) {
+          if (f.mtime_ms <= cutoff) moveRows.push(f);
+        }
+      }
+    }
+
+    const uniqueMove = [...new Map(moveRows.map((f) => [f.path, f])).values()];
+    if (!uniqueMove.length) continue;
+    const claimed = claimKind(db, scanId, uniqueMove.map((f) => f.path), "archiveable");
+    if (!claimed.length) continue;
+    const needsRoot = !folderOk && !archiveRoot;
+    if (folderOk && folder) {
+      push(
+        makeFinding(
+          scanId,
+          "arch-move",
+          kind,
+          `Move leftover ${kindTitle(kind).toLowerCase()} to ${basename(folder)}`,
+          "archiveable",
+          "archive",
+          "low",
+          0.84,
+          `These sit in your profile (or unused outside it). Confirm to move them into the labeled ${kindTitle(kind)} folder, or Recycle instead.`,
+          claimed,
+          bytesFor(uniqueMove, new Set(claimed)),
+          {
+            kind,
+            allowedActions: ["archive", "recycle"],
+            destPath: folder,
+            needsArchiveRoot: false,
+          },
+        ),
+      );
+    } else {
+      push(
+        makeFinding(
+          scanId,
+          "arch-create",
+          kind,
+          `Tidy leftover ${kindTitle(kind).toLowerCase()}`,
+          "archiveable",
+          "archive",
+          "low",
+          0.82,
+          `Confirm to create a ${kindTitle(kind)} folder under your archive root and move these, or Recycle them.`,
+          claimed,
+          bytesFor(uniqueMove, new Set(claimed)),
+          {
+            kind,
+            allowedActions: ["archive", "recycle"],
+            needsArchiveRoot: needsRoot,
+          },
+        ),
+      );
+    }
+  }
 }
 
 export function classifyScan(db: Database.Database, scanId: string, options: ScanOptions): Finding[] {
@@ -79,6 +258,7 @@ export function classifyScan(db: Database.Database, scanId: string, options: Sca
   const unusedMs = (options.unusedDays ?? 90) * 24 * 60 * 60 * 1000;
   const cutoff = Date.now() - unusedMs;
   const findings: Finding[] = [];
+  const protectedRoots = listProtectedRoots(db);
 
   const push = (f: Finding) => {
     if (f.fileCount === 0) return;
@@ -100,7 +280,7 @@ export function classifyScan(db: Database.Database, scanId: string, options: Sca
     scanId,
   );
   {
-    const paths = claim(db, scanId, cacheHits.map((f) => f.path), "removable");
+    const paths = claim(db, scanId, cacheHits.map((f) => f.path), "removable", protectedRoots);
     if (paths.length) {
       push(
         makeFinding(
@@ -128,7 +308,7 @@ export function classifyScan(db: Database.Database, scanId: string, options: Sca
     scanId,
   );
   {
-    const paths = claim(db, scanId, tmpHits.map((f) => f.path), "removable");
+    const paths = claim(db, scanId, tmpHits.map((f) => f.path), "removable", protectedRoots);
     if (paths.length) {
       push(
         makeFinding(
@@ -147,6 +327,8 @@ export function classifyScan(db: Database.Database, scanId: string, options: Sca
       );
     }
   }
+
+  classifyKindArchives(db, scanId, installerMin, cutoff, push);
 
   const installerHits = queryFiles(
     db,
@@ -173,7 +355,7 @@ export function classifyScan(db: Database.Database, scanId: string, options: Sca
     installerMin,
   );
   {
-    const paths = claim(db, scanId, installerHits.map((f) => f.path), "removable");
+    const paths = claim(db, scanId, installerHits.map((f) => f.path), "removable", protectedRoots);
     if (paths.length) {
       push(
         makeFinding(
@@ -199,7 +381,7 @@ export function classifyScan(db: Database.Database, scanId: string, options: Sca
     scanId,
   );
   {
-    const paths = claim(db, scanId, winOld.map((f) => f.path), "bloat");
+    const paths = claim(db, scanId, winOld.map((f) => f.path), "bloat", protectedRoots);
     if (paths.length) {
       push(
         makeFinding(
@@ -241,7 +423,7 @@ export function classifyScan(db: Database.Database, scanId: string, options: Sca
     const roots: string[] = [];
     let bytes = 0;
     for (const [root, v] of stale) {
-      const claimed = claim(db, scanId, v.paths, "bloat");
+      const claimed = claim(db, scanId, v.paths, "bloat", protectedRoots);
       if (claimed.length) {
         roots.push(root);
         bytes += v.bytes;
@@ -277,7 +459,7 @@ export function classifyScan(db: Database.Database, scanId: string, options: Sca
     scanId,
   );
   {
-    const paths = claim(db, scanId, leftoverCopies.map((f) => f.path), "bloat");
+    const paths = claim(db, scanId, leftoverCopies.map((f) => f.path), "bloat", protectedRoots);
     if (paths.length) {
       push(
         makeFinding(
@@ -312,7 +494,7 @@ export function classifyScan(db: Database.Database, scanId: string, options: Sca
     scanId,
   );
   {
-    const paths = claim(db, scanId, empty.map((d) => d.path), "bloat");
+    const paths = claim(db, scanId, empty.map((d) => d.path), "bloat", protectedRoots);
     if (paths.length) {
       push(
         makeFinding(
@@ -340,7 +522,7 @@ export function classifyScan(db: Database.Database, scanId: string, options: Sca
     cutoff,
   );
   {
-    const paths = claim(db, scanId, large.map((f) => f.path), "archiveable");
+    const paths = claim(db, scanId, large.map((f) => f.path), "archiveable", protectedRoots);
     if (paths.length) {
       push(
         makeFinding(
