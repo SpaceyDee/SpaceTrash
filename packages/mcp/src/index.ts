@@ -35,7 +35,7 @@ function fail(err: unknown) {
   return { content: [{ type: "text" as const, text: message }], isError: true as const };
 }
 
-const server = new McpServer({ name: "spacetrash", version: "0.1.8" });
+const server = new McpServer({ name: "spacetrash", version: "0.1.9" });
 
 server.tool("spacetrash_status", "SpaceTrash engine status: version, data dir, active scan", {}, async () => {
   try {
@@ -69,7 +69,23 @@ server.tool(
   },
 );
 
-server.tool("spacetrash_archive_state", "Archive root and labeled Disk images / Installers folders", {}, async () => {
+server.tool(
+  "spacetrash_ignore_path",
+  "Ignore or un-ignore a leftover app folder so SpaceTrash stops (or resumes) flagging it. Does not Protect the path from other rules.",
+  {
+    path: z.string().describe("Absolute folder path"),
+    ignored: z.boolean().describe("true to ignore, false to flag it again"),
+  },
+  async (args) => {
+    try {
+      return ok(await apiSend("PUT", "/api/ignored", args));
+    } catch (err) {
+      return fail(err);
+    }
+  },
+);
+
+server.tool("spacetrash_archive_state", "Archive root, labeled kind folders, and ignored leftover paths", {}, async () => {
   try {
     return ok(await apiGet("/api/archive"));
   } catch (err) {
@@ -79,7 +95,7 @@ server.tool("spacetrash_archive_state", "Archive root and labeled Disk images / 
 
 server.tool(
   "spacetrash_set_archive_root",
-  "Set the archive root (not inside the user profile). SpaceTrash can create Disk images / Installers folders here.",
+  "Set the archive root (not inside the user profile). SpaceTrash can create Disk images / Installers / App leftovers folders here.",
   { root: z.string().describe("Absolute folder or drive, e.g. \"G:\\\\\"") },
   async (args) => {
     try {
@@ -156,7 +172,7 @@ server.tool(
   "Preview a finding action and receive a one-time confirm token. Does not delete or move files.",
   {
     findingId: z.string(),
-    action: z.enum(["recycle", "archive", "label"]).optional(),
+    action: z.enum(["recycle", "archive", "label", "ignore"]).optional(),
     archiveRoot: z.string().optional(),
   },
   async ({ findingId, action, archiveRoot }) => {
@@ -172,7 +188,7 @@ server.tool(
 
 server.tool(
   "spacetrash_apply_action",
-  "Apply a previously previewed action. Requires the preview token and confirm=true. Recycle, label an archive folder, or move leftover installers/ISOs into that folder.",
+  "Apply a previously previewed action. Requires the preview token and confirm=true. Recycle, ignore a leftover app folder, label an archive folder, or move leftovers into Disk images / Installers / App leftovers.",
   {
     token: z.string().describe("Token from spacetrash_preview_action"),
     confirm: z.literal(true).describe("Must be true. Apply is rejected without it."),

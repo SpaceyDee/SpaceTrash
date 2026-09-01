@@ -1,6 +1,6 @@
 export type FindingClass = "removable" | "bloat" | "archiveable" | "keep";
-export type ActionKind = "recycle" | "archive" | "label" | "none";
-export type ArchiveKind = "disk-images" | "installers";
+export type ActionKind = "recycle" | "archive" | "label" | "ignore" | "none";
+export type ArchiveKind = "disk-images" | "installers" | "app-leftovers";
 export type FindingStatus = "open" | "previewed" | "applied" | "failed";
 export type Risk = "low" | "medium" | "high";
 export type ScanStatus = "queued" | "running" | "complete" | "failed" | "cancelled";
@@ -23,6 +23,7 @@ export interface ScanOptions {
   installerMinBytes?: number;
   largeMinBytes?: number;
   unusedDays?: number;
+  leftoverMinBytes?: number;
 }
 
 export interface ScanJob {
@@ -57,6 +58,7 @@ export interface Finding {
   allowedActions?: ActionKind[];
   destPath?: string;
   needsArchiveRoot?: boolean;
+  programName?: string;
 }
 
 export interface ScanSummary {
@@ -96,6 +98,7 @@ export interface ArchiveKindFolder {
 export interface ArchiveState {
   root: string | null;
   kinds: ArchiveKindFolder[];
+  ignored: string[];
 }
 
 export interface EngineStatus {

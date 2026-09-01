@@ -73,13 +73,15 @@
             </details>
             <details class="folder-more">
               <summary>Archive root</summary>
-              <p class="muted">Leftover installers and disk images from your profile can move here after Confirm.</p>
+              <p class="muted">Leftover installers, disk images, and unmatched app folders can move here after Confirm.</p>
               <label class="folder">
                 <span class="sr-only">Archive root path</span>
                 <input id="archiveRoot" type="text" placeholder="G:\Archives" />
               </label>
               <button type="button" class="blob" id="saveArchiveRoot">Save archive root</button>
               <ul id="archiveKinds" class="archive-kinds"></ul>
+              <p class="muted hidden" id="ignoredHead">Ignored leftover folders</p>
+              <ul id="ignoredPaths" class="archive-kinds hidden"></ul>
             </details>
           </div>
           <div class="tracker hidden" id="progressWrap">
@@ -132,6 +134,7 @@
         <div class="row">
           <button type="button" class="primary blob" id="previewBtn">Preview</button>
           <button type="button" class="blob hidden" id="recyclePreviewBtn">Preview recycle</button>
+          <button type="button" class="blob hidden" id="ignorePreviewBtn">Preview ignore</button>
           <button type="button" class="danger blob hidden" id="confirmBtn">Confirm recycle</button>
         </div>
         <pre id="dPreview" class="preview hidden"></pre>

@@ -109,6 +109,9 @@ function migrate(db: Database.Database): void {
       kind TEXT PRIMARY KEY,
       path TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS ignored_paths (
+      path TEXT PRIMARY KEY
+    );
   `);
   ensureColumn(db, "scans", "files_skipped", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "scans", "files_walked", "INTEGER NOT NULL DEFAULT 0");
@@ -340,6 +343,7 @@ export function insertFinding(db: Database.Database, finding: Finding): void {
     allowedActions: finding.allowedActions,
     destPath: finding.destPath,
     needsArchiveRoot: finding.needsArchiveRoot,
+    programName: finding.programName,
   };
   db.prepare(
     `INSERT INTO findings (id, scan_id, title, class, bytes, file_count, confidence, why, paths_json, action, risk, status, meta_json)
@@ -367,6 +371,7 @@ function rowToFinding(row: Record<string, unknown>): Finding {
     allowedActions?: ActionKind[];
     destPath?: string;
     needsArchiveRoot?: boolean;
+    programName?: string;
   } = {};
   if (row.meta_json) {
     try {
@@ -392,6 +397,7 @@ function rowToFinding(row: Record<string, unknown>): Finding {
     allowedActions: meta.allowedActions,
     destPath: meta.destPath,
     needsArchiveRoot: meta.needsArchiveRoot,
+    programName: meta.programName,
   };
 }
 
@@ -463,6 +469,27 @@ export function setProtectedRoot(db: Database.Database, nativePath: string, on: 
 
 export function isProtectedPath(db: Database.Database, nativePath: string): boolean {
   return pathInProtectedRoots(nativePath, listProtectedRoots(db));
+}
+
+export function listIgnoredPaths(db: Database.Database): string[] {
+  return (db.prepare(`SELECT path FROM ignored_paths ORDER BY path`).all() as { path: string }[]).map((r) => r.path);
+}
+
+export function pathInIgnoredPaths(nativePath: string, ignored: string[]): boolean {
+  const p = normalizePath(nativePath);
+  return ignored.some((root) => pathEquals(p, root) || pathIsUnder(p, root));
+}
+
+export function setIgnoredPath(db: Database.Database, nativePath: string, on: boolean): void {
+  const p = normalizePath(nativePath);
+  if (!p) throw new Error("Ignored path is empty");
+  if (on) {
+    db.prepare(`INSERT OR IGNORE INTO ignored_paths (path) VALUES (?)`).run(p);
+    return;
+  }
+  for (const root of listIgnoredPaths(db)) {
+    if (pathEquals(root, p)) db.prepare(`DELETE FROM ignored_paths WHERE path = ?`).run(root);
+  }
 }
 
 export function getSetting(db: Database.Database, key: string): string | null {

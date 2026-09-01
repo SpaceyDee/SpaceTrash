@@ -1,16 +1,17 @@
 import type { ArchiveKind } from "./types.ts";
-import { copyFile, lstat, mkdir, rename, rm, stat } from "node:fs/promises";
+import { copyFile, cp, lstat, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { homedir } from "node:os";
 import { assertActionAllowed } from "./deny.ts";
-import { normalizePath, parentPath, pathIsUnder, toCanonical, toNative } from "./paths.ts";
+import { normalizePath, parentPath, pathEquals, pathIsUnder, toCanonical, toNative } from "./paths.ts";
 
 export const CLUSTER_MIN = 3;
 
 export const KIND_FOLDER_NAME: Record<ArchiveKind, string> = {
   "disk-images": "Disk images",
   installers: "Installers",
+  "app-leftovers": "App leftovers",
 };
 
 const INSTALLER_NAME = /setup|installer|install_|cuda|jdk-|jre-|cursorsetup|rufus/i;
@@ -73,16 +74,46 @@ function sameVolume(a: string, b: string): boolean {
   return left.slice(0, 2).toLowerCase() === right.slice(0, 2).toLowerCase();
 }
 
+async function treeFileBytes(root: string): Promise<number> {
+  const st = await lstat(root);
+  if (st.isSymbolicLink()) return 0;
+  if (!st.isDirectory()) return st.size;
+  let total = 0;
+  const entries = await readdir(root, { withFileTypes: true });
+  for (const entry of entries) {
+    total += await treeFileBytes(join(root, entry.name));
+  }
+  return total;
+}
+
 export async function moveIntoArchive(srcPath: string, destDir: string): Promise<string> {
   assertActionAllowed(srcPath);
   const src = toNative(srcPath);
   const dir = toNative(destDir);
+  if (pathIsUnder(dir, src) && !pathEquals(dir, src)) {
+    throw new Error(`Refusing to archive a folder into itself: ${src}`);
+  }
   const st = await lstat(src);
-  if (st.isSymbolicLink() || st.isDirectory()) {
-    throw new Error(`Refusing to archive reparse or directory: ${src}`);
+  if (st.isSymbolicLink()) {
+    throw new Error(`Refusing to archive reparse: ${src}`);
   }
   await mkdir(dir, { recursive: true });
   const dest = uniqueDestPath(dir, basename(src));
+  if (st.isDirectory()) {
+    if (sameVolume(src, dest)) {
+      await rename(src, dest);
+      return dest;
+    }
+    const before = await treeFileBytes(src);
+    await cp(src, dest, { recursive: true });
+    const after = await treeFileBytes(dest);
+    if (after !== before) {
+      await rm(dest, { recursive: true, force: true });
+      throw new Error(`Copy size mismatch for ${src}`);
+    }
+    await rm(src, { recursive: true, force: true });
+    return dest;
+  }
   if (sameVolume(src, dest)) {
     await rename(src, dest);
     return dest;

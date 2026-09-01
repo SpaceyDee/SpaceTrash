@@ -45,6 +45,16 @@ export function buildApp(opts?: { rendererDir?: string }) {
     res.json(engine.archiveState());
   });
 
+  app.put("/api/ignored", (req, res) => {
+    try {
+      const path = String(req.body?.path ?? "");
+      if (!path.trim()) return res.status(400).json({ error: "path required" });
+      res.json(engine.setIgnored(path, req.body?.ignored === true));
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   app.put("/api/archive", (req, res) => {
     try {
       const root = String(req.body?.root ?? "");
@@ -57,10 +67,10 @@ export function buildApp(opts?: { rendererDir?: string }) {
 
   app.put("/api/archive/kinds", (req, res) => {
     try {
-      const kind = req.body?.kind as "disk-images" | "installers";
+      const kind = req.body?.kind as "disk-images" | "installers" | "app-leftovers";
       const path = String(req.body?.path ?? "");
-      if (kind !== "disk-images" && kind !== "installers") {
-        return res.status(400).json({ error: "kind must be disk-images or installers" });
+      if (kind !== "disk-images" && kind !== "installers" && kind !== "app-leftovers") {
+        return res.status(400).json({ error: "kind must be disk-images, installers, or app-leftovers" });
       }
       if (!path.trim()) return res.status(400).json({ error: "path required" });
       res.json(engine.setKindFolder(kind, path));
@@ -86,6 +96,7 @@ export function buildApp(opts?: { rendererDir?: string }) {
         installerMinBytes: body.installerMinBytes,
         largeMinBytes: body.largeMinBytes,
         unusedDays: body.unusedDays,
+        leftoverMinBytes: body.leftoverMinBytes,
       });
       res.status(202).json(job);
     } catch (err) {
@@ -126,7 +137,7 @@ export function buildApp(opts?: { rendererDir?: string }) {
 
   app.post("/api/findings/:id/preview", (req, res) => {
     try {
-      const action = req.body?.action as "recycle" | "archive" | "label" | undefined;
+      const action = req.body?.action as "recycle" | "archive" | "label" | "ignore" | undefined;
       const archiveRoot = req.body?.archiveRoot ? String(req.body.archiveRoot) : undefined;
       res.json(engine.preview(req.params.id, { action, archiveRoot }));
     } catch (err) {

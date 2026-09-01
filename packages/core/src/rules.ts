@@ -1,19 +1,28 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, dirname } from "node:path";
 import type Database from "better-sqlite3";
 import type { ActionKind, ArchiveKind, Finding, FindingClass, Risk, ScanOptions } from "./types.ts";
 import {
   getArchiveRoot,
   insertFinding,
   listArchiveKinds,
+  listIgnoredPaths,
   listProtectedRoots,
   markClassified,
+  pathInIgnoredPaths,
   pathInProtectedRoots,
 } from "./db.ts";
 import { isDeniedForAction } from "./deny.ts";
-import { CLUSTER_MIN, fileKind, isHotZonePath, kindTitle } from "./archive.ts";
-import { pathIsUnder } from "./paths.ts";
+import { CLUSTER_MIN, defaultKindDir, fileKind, isHotZonePath, kindTitle } from "./archive.ts";
+import { pathEquals, pathIsUnder, toCanonical } from "./paths.ts";
+import {
+  bestMatchingProgram,
+  isConnectedFolder,
+  loadProgramIndex,
+  programHomeOverride,
+  type InstalledProgram,
+} from "./programs.ts";
 
 interface FileRow {
   path: string;
@@ -101,6 +110,112 @@ function queryFiles(db: Database.Database, sql: string, ...params: unknown[]): F
   return db.prepare(sql).all(...params) as FileRow[];
 }
 
+function isDriveRoot(nativePath: string): boolean {
+  return /^[a-z]:\/?$/i.test(toCanonical(nativePath));
+}
+
+function indexWithShortcutPrograms(index: ReturnType<typeof loadProgramIndex>): InstalledProgram[] {
+  const programs = [...index.programs];
+  for (const target of index.shortcutTargets) {
+    const dir = dirname(target);
+    const name = basename(dir);
+    if (name.length >= 4) {
+      programs.push({
+        displayName: name,
+        installLocation: dir,
+        uninstallString: null,
+        publisher: null,
+      });
+    }
+  }
+  return programs;
+}
+
+function classifyAppLeftovers(
+  db: Database.Database,
+  scanId: string,
+  options: ScanOptions,
+  protectedRoots: string[],
+  push: (f: Finding) => void,
+): void {
+  const minBytes = options.leftoverMinBytes ?? 5 * 1024 * 1024;
+  const index = loadProgramIndex();
+  const programs = indexWithShortcutPrograms(index);
+  if (!programs.length) return;
+
+  const ignored = listIgnoredPaths(db);
+  const kindFolders = listArchiveKinds(db).map((row) => row.path);
+  const home = programHomeOverride();
+  const roots = options.roots ?? [];
+  const dirs = queryFiles(db, `SELECT * FROM files WHERE scan_id = ? AND is_dir = 1`, scanId);
+  const files = queryFiles(db, `SELECT * FROM files WHERE scan_id = ? AND is_dir = 0`, scanId);
+  const liveIndex = { programs, shortcutTargets: index.shortcutTargets };
+
+  const candidates: { dir: FileRow; program: InstalledProgram; kids: FileRow[]; bytes: number }[] = [];
+  for (const dir of dirs) {
+    if (isDeniedForAction(dir.path) || pathInProtectedRoots(dir.path, protectedRoots)) continue;
+    if (pathInIgnoredPaths(dir.path, ignored)) continue;
+    if (roots.some((root) => pathEquals(dir.path, root))) continue;
+    if (isDriveRoot(dir.path)) continue;
+    if (kindFolders.some((folder) => pathIsUnder(dir.path, folder))) continue;
+    const program = bestMatchingProgram(dir.name, programs);
+    if (!program) continue;
+    if (isConnectedFolder(dir.path, liveIndex, home)) continue;
+    const kids = files.filter((file) => pathIsUnder(file.path, dir.path) && !pathEquals(file.path, dir.path));
+    const bytes = kids.reduce((sum, file) => sum + file.size, 0);
+    if (bytes < minBytes) continue;
+    candidates.push({ dir, program, kids, bytes });
+  }
+
+  const nested = candidates.filter((candidate) => {
+    const self = toCanonical(candidate.dir.path).toLowerCase();
+    const prefix = self.endsWith("/") ? self : `${self}/`;
+    return !candidates.some((other) => {
+      const otherPath = toCanonical(other.dir.path).toLowerCase();
+      return otherPath !== self && otherPath.startsWith(prefix);
+    });
+  });
+
+  const archiveRoot = getArchiveRoot(db);
+  const kindPath = listArchiveKinds(db).find((row) => row.kind === "app-leftovers")?.path;
+  const dest = kindPath || (archiveRoot ? defaultKindDir(archiveRoot, "app-leftovers") : undefined);
+
+  for (const candidate of nested) {
+    const claimed = claim(
+      db,
+      scanId,
+      [...candidate.kids.map((file) => file.path), candidate.dir.path],
+      "bloat",
+      protectedRoots,
+    );
+    const claimedFiles = claimed.filter((path) => !pathEquals(path, candidate.dir.path));
+    if (!claimedFiles.length) continue;
+    push(
+      makeFinding(
+        scanId,
+        "applet",
+        candidate.dir.path,
+        `Leftover ${candidate.program.displayName}: ${candidate.dir.name}`,
+        "bloat",
+        "archive",
+        "medium",
+        0.72,
+        `${candidate.dir.name} matches installed “${candidate.program.displayName}” but is not that app’s install folder or a Start Menu / desktop shortcut target. Ignore to keep it, move it into App leftovers, or Recycle.`,
+        [candidate.dir.path],
+        candidate.bytes,
+        {
+          kind: "app-leftovers",
+          allowedActions: ["archive", "recycle", "ignore"],
+          destPath: dest,
+          needsArchiveRoot: !archiveRoot,
+          fileCount: candidate.kids.length,
+          programName: candidate.program.displayName,
+        },
+      ),
+    );
+  }
+}
+
 function classifyKindArchives(
   db: Database.Database,
   scanId: string,
@@ -117,7 +232,7 @@ function classifyKindArchives(
     installerMin,
   );
 
-  for (const kind of ["disk-images", "installers"] as ArchiveKind[]) {
+  for (const kind of ["disk-images", "installers", "app-leftovers"] as ArchiveKind[]) {
     const folder = labeled.get(kind) ?? null;
     if (folder && !existsSync(folder)) {
       push(
@@ -329,6 +444,7 @@ export function classifyScan(db: Database.Database, scanId: string, options: Sca
   }
 
   classifyKindArchives(db, scanId, installerMin, cutoff, push);
+  classifyAppLeftovers(db, scanId, options, protectedRoots, push);
 
   const installerHits = queryFiles(
     db,
@@ -443,37 +559,6 @@ export function classifyScan(db: Database.Database, scanId: string, options: Sca
           "node_modules trees that have not been touched in the unused window. Reinstall with npm/pnpm if you still need the project.",
           roots,
           bytes,
-        ),
-      );
-    }
-  }
-
-  const leftoverCopies = queryFiles(
-    db,
-    `SELECT * FROM files WHERE scan_id = ? AND is_dir = 0 AND (
-      lower(path) LIKE '%pulsar%' OR lower(path) LIKE '%sencraft%' OR lower(path) LIKE '%senators-craft%' OR lower(path) LIKE '%senators craft%'
-    ) AND (
-      lower(path) LIKE '%\\old%' OR lower(path) LIKE '%copy%' OR lower(path) LIKE '%backup%' OR lower(path) LIKE '%leftover%'
-      OR path LIKE '%0.%'
-    )`,
-    scanId,
-  );
-  {
-    const paths = claim(db, scanId, leftoverCopies.map((f) => f.path), "bloat", protectedRoots);
-    if (paths.length) {
-      push(
-        makeFinding(
-          scanId,
-          "copies",
-          "app-copies",
-          "Old app copies and leftover trees",
-          "bloat",
-          "recycle",
-          "medium",
-          0.65,
-          "Folders that look like extra copies of known local apps (old versions, backups). Review before confirm — do not recycle the live install.",
-          paths,
-          bytesFor(leftoverCopies, new Set(paths)),
         ),
       );
     }

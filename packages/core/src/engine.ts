@@ -28,6 +28,7 @@ import {
   latestScan,
   listArchiveKinds,
   listFindings,
+  listIgnoredPaths,
   listProtectedRoots,
   openDb,
   resetClassification,
@@ -35,6 +36,7 @@ import {
   setArchiveKindPath,
   setArchiveRootDb,
   setFindingStatus,
+  setIgnoredPath,
   setProtectedRoot,
   setSetting,
   updateScan,
@@ -122,7 +124,14 @@ export function createEngine() {
         path: row.path,
         name: basename(row.path) || kindTitle(row.kind),
       })),
+      ignored: listIgnoredPaths(db),
     };
+  }
+
+  function setIgnored(root: string, on: boolean): ArchiveState {
+    setIgnoredPath(db, root, on);
+    reclassifyLatestIfIdle();
+    return archiveState();
   }
 
   function setArchiveRoot(root: string): ArchiveState {
@@ -391,6 +400,13 @@ export function createEngine() {
       return { findingId: f.id, action, recycled, moved, failed };
     }
 
+    if (action === "ignore") {
+      for (const p of f.paths) setIgnoredPath(db, p, true);
+      setFindingStatus(db, f.id, "applied");
+      reclassifyLatestIfIdle();
+      return { findingId: f.id, action, recycled, moved, failed };
+    }
+
     if (action === "recycle") {
       for (const p of f.paths) {
         try {
@@ -412,7 +428,7 @@ export function createEngine() {
 
     if (!f.kind && !f.destPath) {
       throw new Error(
-        "Large unused-file archive moves are still preview-only. Use a Disk images or Installers finding, or move those files yourself.",
+        "Large unused-file archive moves are still preview-only. Use a Disk images, Installers, or App leftovers finding, or move those files yourself.",
       );
     }
 
@@ -478,6 +494,7 @@ export function createEngine() {
     archiveState,
     setArchiveRoot,
     setKindFolder,
+    setIgnored,
     clearScanData,
     resolveScanWipe,
     cancelScan,

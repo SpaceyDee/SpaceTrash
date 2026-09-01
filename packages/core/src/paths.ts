@@ -2,7 +2,7 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { mkdirSync } from "node:fs";
 
-export const VERSION = "0.1.8";
+export const VERSION = "0.1.9";
 
 export function dataDir(): string {
   const override = process.env.SPACETRASH_DATA;

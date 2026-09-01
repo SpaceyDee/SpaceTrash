@@ -334,10 +334,20 @@ async function loadArchive() {
   const list = $("archiveKinds");
   if (!state.kinds?.length) {
     list.innerHTML = `<li>No kind folders labeled yet.</li>`;
-    return;
+  } else {
+    list.innerHTML = state.kinds
+      .map((k) => `<li><b>${escapeHtml(k.name)}</b> — ${escapeHtml(k.path)}</li>`)
+      .join("");
   }
-  list.innerHTML = state.kinds
-    .map((k) => `<li><b>${escapeHtml(k.name)}</b> — ${escapeHtml(k.path)}</li>`)
+  const ignored = $("ignoredPaths");
+  const ignoredList = state.ignored || [];
+  $("ignoredHead").classList.toggle("hidden", !ignoredList.length);
+  ignored.classList.toggle("hidden", !ignoredList.length);
+  ignored.innerHTML = ignoredList
+    .map(
+      (p) =>
+        `<li>${escapeHtml(p)} <button type="button" class="blob unignore" data-path="${escapeHtml(p)}">Un-ignore</button></li>`,
+    )
     .join("");
 }
 
@@ -526,6 +536,7 @@ async function openFinding(id) {
         ? "Preview move"
         : "Preview recycle";
   $("recyclePreviewBtn").classList.toggle("hidden", !allowed.includes("recycle") || selectedFinding.action === "recycle");
+  $("ignorePreviewBtn").classList.toggle("hidden", !allowed.includes("ignore"));
   $("drawerRootWrap").classList.toggle("hidden", !selectedFinding.needsArchiveRoot);
   $("drawerArchiveRoot").value = $("archiveRoot").value;
   $("confirmBtn").textContent = "Confirm";
@@ -555,19 +566,28 @@ async function doPreview(action) {
       lines.push("", "Confirm sends these items to the Recycle Bin. They are not hard-deleted.");
     } else if (preview.action === "label") {
       lines.push("", "Confirm labels this folder as an archive. Files already in it stay put.");
+    } else if (preview.action === "ignore") {
+      lines.push("", "Confirm ignores this leftover folder. SpaceTrash will not flag it again until you Un-ignore it.");
     } else if (preview.action === "archive" && selectedFinding.kind) {
-      lines.push("", "Confirm moves these files into the archive folder.");
+      lines.push("", "Confirm moves these items into the archive folder.");
     } else {
-      lines.push("", "This archive action is preview-only unless it is a labeled installer or disk-image tidy-up.");
+      lines.push("", "This archive action is preview-only unless it is a labeled installer, disk-image, or app-leftover tidy-up.");
     }
     $("dPreview").textContent = lines.join("\n");
     const canConfirm =
       preview.action === "recycle" ||
       preview.action === "label" ||
+      preview.action === "ignore" ||
       (preview.action === "archive" && selectedFinding.kind);
     $("confirmBtn").classList.toggle("hidden", !canConfirm);
     $("confirmBtn").textContent =
-      preview.action === "recycle" ? "Confirm recycle" : preview.action === "label" ? "Confirm label" : "Confirm move";
+      preview.action === "recycle"
+        ? "Confirm recycle"
+        : preview.action === "label"
+          ? "Confirm label"
+          : preview.action === "ignore"
+            ? "Confirm ignore"
+            : "Confirm move";
   } catch (err) {
     $("dPreview").classList.remove("hidden");
     $("dPreview").textContent = err.message;
@@ -599,7 +619,20 @@ $("closeDrawer").addEventListener("click", () => openDrawer(false));
 $("backdrop").addEventListener("click", () => openDrawer(false));
 $("previewBtn").addEventListener("click", () => void doPreview());
 $("recyclePreviewBtn").addEventListener("click", () => void doPreview("recycle"));
+$("ignorePreviewBtn").addEventListener("click", () => void doPreview("ignore"));
 $("confirmBtn").addEventListener("click", doConfirm);
+$("ignoredPaths").addEventListener("click", (ev) => {
+  const btn = ev.target.closest(".unignore");
+  if (!btn) return;
+  const path = btn.getAttribute("data-path");
+  if (!path) return;
+  void api("/api/ignored", { method: "PUT", body: { path, ignored: false } })
+    .then(() => loadArchive())
+    .then(() => (scanId ? refreshResults() : undefined))
+    .catch((err) => {
+      $("scanHint").textContent = err.message;
+    });
+});
 document.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape") openDrawer(false);
 });

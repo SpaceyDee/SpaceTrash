@@ -39,13 +39,15 @@ program
   .option("--installer-min <bytes>", "Installer size floor", (v) => Number(v))
   .option("--large-min <bytes>", "Large-unused size floor", (v) => Number(v))
   .option("--unused-days <n>", "Unused age in days", (v) => Number(v))
-  .action(async (opts: { root: string[]; installerMin?: number; largeMin?: number; unusedDays?: number }) => {
+  .option("--leftover-min <bytes>", "Orphan app-folder size floor", (v) => Number(v))
+  .action(async (opts: { root: string[]; installerMin?: number; largeMin?: number; unusedDays?: number; leftoverMin?: number }) => {
     const engine = getEngine();
     const job = engine.startScan({
       roots: opts.root,
       installerMinBytes: opts.installerMin,
       largeMinBytes: opts.largeMin,
       unusedDays: opts.unusedDays,
+      leftoverMinBytes: opts.leftoverMin,
     });
     process.stdout.write(`scan ${job.id}\n`);
     for (;;) {

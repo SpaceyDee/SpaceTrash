@@ -49,6 +49,8 @@ python scripts/publish-update.py --setup
 
 v0.1.0 installs do not contain the updater — install 0.1.1 once, then later versions can apply themselves.
 
+From 0.1.9, folders that look like leftover apps are checked against installed programs and Start Menu / desktop shortcuts. Live install and AppData trees stay keep. Orphans get Ignore, Move into App leftovers, or Recycle, behind Confirm.
+
 From 0.1.8, leftover installers and disk images in your user profile are tidy-up (move to a labeled archive) or Recycle, both behind Confirm. A folder of 3+ similar files outside the profile can be labeled as an archive. Updates recommend clearing old scan data.
 
 From 0.1.7, each drive pinwheel has **Protect archive**: SpaceTrash still maps the disk, but will not recommend deleting anything on it. Toggle it on an existing scan to drop those findings without walking the drive again.

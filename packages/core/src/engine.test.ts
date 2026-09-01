@@ -1,13 +1,19 @@
 import assert from "node:assert/strict";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdir, rm, writeFile, utimes, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, before, describe, it } from "node:test";
 import { closeDb, insertScan, openDb } from "./db.ts";
+import { resetProgramIndexCache } from "./programs.ts";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const data = join(repoRoot, "fixtures", "safe-scan-generated", "data");
 const fixture = join(repoRoot, "fixtures", "safe-scan-generated", "tree");
+const emptyPrograms = join(repoRoot, "fixtures", "app-leftover-generated", "empty.json");
+mkdirSync(dirname(emptyPrograms), { recursive: true });
+writeFileSync(emptyPrograms, JSON.stringify({ programs: [], shortcutTargets: [] }));
+process.env.SPACETRASH_PROGRAM_INDEX = emptyPrograms;
 process.env.SPACETRASH_DATA = data;
 closeDb();
 
@@ -348,5 +354,159 @@ describe("archive tidy-up", () => {
     const state = engine.archiveState();
     assert.equal(state.kinds.some((k) => k.kind === "disk-images"), true);
     await stat(join(cold, "a.iso"));
+  });
+});
+
+describe("app leftover folders", () => {
+  const leftoverRoot = join(repoRoot, "fixtures", "app-leftover-generated");
+  const tree = join(leftoverRoot, "tree");
+  const orphan = join(tree, "Pulsar-old");
+  const portable = join(tree, "Pulsar");
+  const archiveRoot = join(leftoverRoot, "archive-root");
+  const home = join(leftoverRoot, "home");
+  const appData = join(home, "AppData", "Local", "Pulsar");
+  const indexFile = join(leftoverRoot, "pulsar.json");
+  const prevIndex = process.env.SPACETRASH_PROGRAM_INDEX;
+  const prevHome = process.env.SPACETRASH_PROGRAM_HOME;
+
+  function scanOpts(roots: string[]) {
+    return { roots, installerMinBytes: 1024, largeMinBytes: 50 * 1024, unusedDays: 30, leftoverMinBytes: 1024 };
+  }
+
+  function writeIndex(body: unknown) {
+    writeFileSync(indexFile, JSON.stringify(body));
+    process.env.SPACETRASH_PROGRAM_INDEX = indexFile;
+    resetProgramIndexCache();
+  }
+
+  before(async () => {
+    await mkdir(join(orphan, "bin"), { recursive: true });
+    await mkdir(join(portable, "bin"), { recursive: true });
+    await mkdir(appData, { recursive: true });
+    await mkdir(archiveRoot, { recursive: true });
+    await writeFile(join(orphan, "bin", "pulsar.exe"), Buffer.alloc(6 * 1024 * 1024, 1));
+    await writeFile(join(portable, "bin", "pulsar.exe"), Buffer.alloc(6 * 1024 * 1024, 2));
+    await writeFile(join(appData, "state.dat"), Buffer.alloc(6 * 1024 * 1024, 3));
+    try {
+      openDb().exec("DELETE FROM ignored_paths");
+    } catch {
+      // table added in this version
+    }
+  });
+
+  after(() => {
+    process.env.SPACETRASH_PROGRAM_INDEX = prevIndex;
+    if (prevHome === undefined) delete process.env.SPACETRASH_PROGRAM_HOME;
+    else process.env.SPACETRASH_PROGRAM_HOME = prevHome;
+    resetProgramIndexCache();
+  });
+
+  it("does not use the old hardcoded pulsar path rule when the program index is empty", async () => {
+    writeIndex({ programs: [], shortcutTargets: [] });
+    const engine = createEngine();
+    const job = engine.startScan(scanOpts([tree]));
+    const done = await waitForScan(engine, job.id);
+    assert.equal(done.status, "complete", done.error);
+    const dump = engine.findings(job.id).map((f) => f.title).join(" | ");
+    assert.equal(dump.toLowerCase().includes("old app copies"), false, dump);
+    assert.equal(
+      engine.findings(job.id).some((f) => f.kind === "app-leftovers"),
+      false,
+      dump,
+    );
+  });
+
+  it("flags an orphan folder that matches an installed app name but is not the live path", async () => {
+    writeIndex({
+      programs: [
+        {
+          displayName: "Pulsar",
+          installLocation: "C:\\Program Files\\Pulsar",
+          uninstallString: '"C:\\Program Files\\Pulsar\\uninstall.exe"',
+          publisher: "SpaceyDee",
+        },
+      ],
+      shortcutTargets: [join(portable, "bin", "pulsar.exe")],
+    });
+    process.env.SPACETRASH_PROGRAM_HOME = home;
+    const engine = createEngine();
+    const job = engine.startScan(scanOpts([tree, home]));
+    const done = await waitForScan(engine, job.id);
+    assert.equal(done.status, "complete", done.error);
+    const findings = engine.findings(job.id);
+    const dump = findings.map((f) => `${f.action}:${f.title}:${f.paths.join(",")}`).join(" | ");
+    const leftover = findings.find((f) => f.kind === "app-leftovers" && f.paths.some((p) => p.toLowerCase().includes("pulsar-old")));
+    assert.ok(leftover, dump);
+    assert.equal(leftover.class, "bloat");
+    assert.ok(leftover.allowedActions?.includes("archive"), dump);
+    assert.ok(leftover.allowedActions?.includes("recycle"), dump);
+    assert.ok(leftover.allowedActions?.includes("ignore"), dump);
+    assert.equal(
+      findings.some((f) => f.kind === "app-leftovers" && f.paths.some((p) => /[\\/]pulsar$/i.test(p))),
+      false,
+      dump,
+    );
+    assert.equal(
+      findings.some((f) => f.kind === "app-leftovers" && f.paths.some((p) => p.toLowerCase().includes("appdata"))),
+      false,
+      dump,
+    );
+  });
+
+  it("ignores an orphan folder on confirm and does not flag it again", async () => {
+    writeIndex({
+      programs: [
+        {
+          displayName: "Pulsar",
+          installLocation: "C:\\Program Files\\Pulsar",
+          uninstallString: null,
+          publisher: "SpaceyDee",
+        },
+      ],
+      shortcutTargets: [],
+    });
+    const engine = createEngine();
+    const job = engine.startScan(scanOpts([tree]));
+    await waitForScan(engine, job.id);
+    const leftover = engine.findings(job.id).find((f) => f.kind === "app-leftovers" && f.paths.some((p) => p.toLowerCase().includes("pulsar-old")));
+    assert.ok(leftover);
+    const preview = engine.preview(leftover.id, { action: "ignore" });
+    const result = await engine.apply(preview.token, true);
+    assert.equal(result.action, "ignore");
+    engine.clearScanData();
+    const again = engine.startScan(scanOpts([tree]));
+    await waitForScan(engine, again.id);
+    const after = engine.findings(again.id);
+    assert.equal(
+      after.some((f) => f.kind === "app-leftovers" && f.paths.some((p) => p.toLowerCase().includes("pulsar-old"))),
+      false,
+      after.map((f) => f.title).join(" | "),
+    );
+    engine.setIgnored(leftover.paths[0], false);
+  });
+
+  it("moves an orphan folder into App leftovers after confirm", async () => {
+    writeIndex({
+      programs: [
+        {
+          displayName: "Pulsar",
+          installLocation: "C:\\Program Files\\Pulsar",
+          uninstallString: null,
+          publisher: "SpaceyDee",
+        },
+      ],
+      shortcutTargets: [],
+    });
+    const engine = createEngine();
+    engine.setArchiveRoot(archiveRoot);
+    const job = engine.startScan(scanOpts([tree]));
+    await waitForScan(engine, job.id);
+    const leftover = engine.findings(job.id).find((f) => f.kind === "app-leftovers" && f.paths.some((p) => p.toLowerCase().includes("pulsar-old")));
+    assert.ok(leftover);
+    const preview = engine.preview(leftover.id, { action: "archive" });
+    const result = await engine.apply(preview.token, true);
+    assert.equal(result.moved.length, 1, JSON.stringify(result));
+    await stat(join(archiveRoot, "App leftovers", "Pulsar-old", "bin", "pulsar.exe"));
+    await assert.rejects(() => stat(orphan));
   });
 });
