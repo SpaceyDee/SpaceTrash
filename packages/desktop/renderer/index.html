@@ -4,55 +4,99 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>SpaceTrash</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Sora:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
+    <div class="sky" aria-hidden="true"></div>
+
     <header class="top">
-      <div>
-        <h1>SpaceTrash</h1>
-        <p class="tag">Scan. Classify. Confirm before anything moves.</p>
-      </div>
-      <div class="top-meta" id="statusLine">Connecting…</div>
-    </header>
-
-    <section class="panel">
-      <h2>Volumes</h2>
-      <div id="volumes" class="volumes">Loading drives…</div>
-      <div class="row wrap">
-        <label class="folder">Folder override <input id="folderOverride" type="text" placeholder="Optional: G:\Projects\example" /></label>
-      </div>
-      <div class="row">
-        <button id="scanBtn" class="primary" type="button">Scan selected</button>
-        <button id="stopBtn" class="danger hidden" type="button" disabled>Stop scan</button>
-        <span id="scanHint" class="muted">Each selected drive walks in its own worker at the same time. First pass is a full sweep; later scans skip unchanged folders. Nothing is deleted until you Preview, then Confirm.</span>
-      </div>
-      <div class="progress-wrap hidden" id="progressWrap">
-        <div class="progress"><i id="progressBar"></i></div>
-        <div class="muted" id="progressText"></div>
-      </div>
-    </section>
-
-    <section class="cards" id="cards">
-      <article class="card removable"><h3>Removable</h3><strong id="c-removable">—</strong><span>caches, installers, scratch</span></article>
-      <article class="card bloat"><h3>Bloat</h3><strong id="c-bloat">—</strong><span>old copies, stale trees</span></article>
-      <article class="card archive"><h3>Archiveable</h3><strong id="c-archiveable">—</strong><span>large and unused</span></article>
-      <article class="card keep"><h3>Keep</h3><strong id="c-keep">—</strong><span>everything else scanned</span></article>
-    </section>
-
-    <section class="panel">
-      <div class="row spread">
-        <h2>Issues</h2>
-        <div class="filters" id="filters">
-          <button type="button" data-class="" class="chip on">All</button>
-          <button type="button" data-class="removable" class="chip">Removable</button>
-          <button type="button" data-class="bloat" class="chip">Bloat</button>
-          <button type="button" data-class="archiveable" class="chip">Archive</button>
+      <div class="brand">
+        <span class="mark" aria-hidden="true">
+          <svg viewBox="-20 -20 40 40">
+            <g class="mark-spin">
+              <path d="M0-16A16 16 0 0 1 14-8L7-4A8 8 0 0 0 0-8Z" />
+              <path d="M14-8A16 16 0 0 1 14 8L7 4A8 8 0 0 0 7-4Z" />
+              <path d="M14 8A16 16 0 0 1 0 16L0 8A8 8 0 0 0 7 4Z" />
+              <path d="M0 16A16 16 0 0 1-14 8L-7 4A8 8 0 0 0 0 8Z" />
+              <circle r="3.2" />
+            </g>
+          </svg>
+        </span>
+        <div>
+          <h1>SpaceTrash</h1>
+          <p class="tag">Pick a drive, scan the junk, confirm before anything moves.</p>
         </div>
       </div>
-      <div id="issues" class="issues">Scan a drive to see issues.</div>
-    </section>
+      <div class="telemetry" id="statusLine">Waking up…</div>
+    </header>
 
-    <aside id="drawer" class="drawer hidden">
+    <main>
+      <section class="deck">
+        <div class="deck-head">
+          <h2>Your drives</h2>
+          <p class="muted">Click a pinwheel to include it. Hover a slice to peek at used vs free.</p>
+        </div>
+        <div id="volumes" class="orbit-row" role="group" aria-label="Drives">Loading drives…</div>
+
+        <div class="dock">
+          <div class="dock-actions">
+            <button id="scanBtn" class="primary blob" type="button">Scan</button>
+            <button id="stopBtn" class="danger blob hidden" type="button" disabled>Stop</button>
+          </div>
+          <div class="dock-copy">
+            <p id="scanHint" class="hint">
+              First pass maps everything. Later scans skip folders that have not changed.
+            </p>
+            <details class="folder-more">
+              <summary>Scan a folder instead</summary>
+              <label class="folder">
+                <span class="sr-only">Folder path</span>
+                <input id="folderOverride" type="text" placeholder="G:\Projects\example" />
+              </label>
+            </details>
+          </div>
+          <div class="tracker hidden" id="progressWrap">
+            <div class="tracker-rail">
+              <i id="progressBar"></i>
+              <span class="tracker-bead" id="trackerBead"></span>
+            </div>
+            <div class="tracker-readout" id="progressText"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="atlas">
+        <div class="atlas-wheel">
+          <div class="deck-head">
+            <h2>What’s on it</h2>
+            <p class="muted">Hover a slice to grow it and filter the list. Click to keep that filter on.</p>
+          </div>
+          <div id="classWheel" class="class-stage" aria-label="Scan breakdown"></div>
+          <ul id="classLegend" class="legend"></ul>
+        </div>
+        <div class="atlas-list">
+          <div class="row spread">
+            <h2>Issues</h2>
+            <div class="filters" id="filters">
+              <button type="button" data-class="" class="chip on">All</button>
+              <button type="button" data-class="removable" class="chip">Removable</button>
+              <button type="button" data-class="bloat" class="chip">Bloat</button>
+              <button type="button" data-class="archiveable" class="chip">Archive</button>
+            </div>
+          </div>
+          <div id="issues" class="issues">Scan a drive and the junk shows up here.</div>
+        </div>
+      </section>
+    </main>
+
+    <div id="backdrop" class="backdrop" hidden></div>
+    <aside id="drawer" class="drawer" aria-hidden="true">
       <div class="drawer-inner">
         <button type="button" class="close" id="closeDrawer">Close</button>
         <h2 id="dTitle"></h2>
@@ -61,8 +105,8 @@
         <h3>Paths</h3>
         <ul id="dPaths"></ul>
         <div class="row">
-          <button type="button" class="primary" id="previewBtn">Preview</button>
-          <button type="button" class="danger hidden" id="confirmBtn">Confirm recycle</button>
+          <button type="button" class="primary blob" id="previewBtn">Preview</button>
+          <button type="button" class="danger blob hidden" id="confirmBtn">Confirm recycle</button>
         </div>
         <pre id="dPreview" class="preview hidden"></pre>
       </div>

@@ -31,7 +31,7 @@ function fail(err: unknown) {
   return { content: [{ type: "text" as const, text: message }], isError: true as const };
 }
 
-const server = new McpServer({ name: "spacetrash", version: "0.1.4" });
+const server = new McpServer({ name: "spacetrash", version: "0.1.5" });
 
 server.tool("spacetrash_status", "SpaceTrash engine status: version, data dir, active scan", {}, async () => {
   try {

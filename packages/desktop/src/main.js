@@ -149,12 +149,12 @@ function setupUpdates() {
 
 async function createWindow() {
   const win = new BrowserWindow({
-    width: 1220,
-    height: 840,
+    width: 1280,
+    height: 880,
     minWidth: 900,
     minHeight: 640,
     title: "SpaceTrash",
-    backgroundColor: "#0e1116",
+    backgroundColor: "#14121c",
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,

@@ -49,6 +49,8 @@ python scripts/publish-update.py --setup
 
 v0.1.0 installs do not contain the updater — install 0.1.1 once, then later versions can apply themselves.
 
+From 0.1.5, drives and scan results are pinwheels: hover a slice to grow it, click a drive to include it, and a tracking bead shows scan progress.
+
 From 0.1.4, worker results are applied in short slices on the UI thread so the window stays responsive (and Stop works) while several drives write into SQLite at once.
 
 From 0.1.3, each selected drive is walked in its own worker thread so disks are scanned at the same time, and **Stop scan** cancels a run from the UI.

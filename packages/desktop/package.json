@@ -1,6 +1,6 @@
 {
   "name": "@spacetrash/desktop",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "description": "SpaceTrash desktop app — scan, classify, confirm-to-act",
   "author": "SpaceTrash",
