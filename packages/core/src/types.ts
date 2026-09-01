@@ -1,5 +1,6 @@
 export type FindingClass = "removable" | "bloat" | "archiveable" | "keep";
-export type ActionKind = "recycle" | "archive" | "none";
+export type ActionKind = "recycle" | "archive" | "label" | "ignore" | "none";
+export type ArchiveKind = "disk-images" | "installers" | "app-leftovers";
 export type FindingStatus = "open" | "previewed" | "applied" | "failed";
 export type Risk = "low" | "medium" | "high";
 export type ScanStatus = "queued" | "running" | "complete" | "failed" | "cancelled";
@@ -13,6 +14,8 @@ export interface Volume {
   totalBytes: number;
   freeBytes: number;
   kind: VolumeKind;
+  /** User-marked archive: still scanned, never recommended for delete. */
+  protected?: boolean;
 }
 
 export interface ScanOptions {
@@ -20,6 +23,7 @@ export interface ScanOptions {
   installerMinBytes?: number;
   largeMinBytes?: number;
   unusedDays?: number;
+  leftoverMinBytes?: number;
 }
 
 export interface ScanJob {
@@ -33,6 +37,8 @@ export interface ScanJob {
   error?: string;
   progress: number;
   currentPath?: string;
+  filesSkipped?: number;
+  filesWalked?: number;
 }
 
 export interface Finding {
@@ -48,6 +54,11 @@ export interface Finding {
   action: ActionKind;
   risk: Risk;
   status: FindingStatus;
+  kind?: ArchiveKind;
+  allowedActions?: ActionKind[];
+  destPath?: string;
+  needsArchiveRoot?: boolean;
+  programName?: string;
 }
 
 export interface ScanSummary {
@@ -65,13 +76,29 @@ export interface Preview {
   paths: string[];
   bytes: number;
   expiresAt: number;
+  destPath?: string;
+  needsArchiveRoot?: boolean;
+  allowedActions?: ActionKind[];
 }
 
 export interface ApplyResult {
   findingId: string;
   action: ActionKind;
   recycled: string[];
+  moved: string[];
   failed: { path: string; error: string }[];
+}
+
+export interface ArchiveKindFolder {
+  kind: ArchiveKind;
+  path: string;
+  name: string;
+}
+
+export interface ArchiveState {
+  root: string | null;
+  kinds: ArchiveKindFolder[];
+  ignored: string[];
 }
 
 export interface EngineStatus {
@@ -81,4 +108,6 @@ export interface EngineStatus {
   dataDir: string;
   activeScanId: string | null;
   lastScanId: string | null;
+  lastAppVersion?: string | null;
+  needsScanWipe?: boolean;
 }

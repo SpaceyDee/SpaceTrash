@@ -21,11 +21,71 @@ export function buildApp(opts?: { rendererDir?: string }) {
   app.use(express.json({ limit: "2mb" }));
 
   app.get("/api/status", (_req, res) => {
-    res.json(engine.status());
+    res.json({
+      ...engine.status(),
+      updateUrl: process.env.SPACETRASH_UPDATE_URL || null,
+    });
   });
 
   app.get("/api/volumes", async (_req, res) => {
     res.json(await engine.volumes());
+  });
+
+  app.put("/api/protected", async (req, res) => {
+    try {
+      const path = String(req.body?.path ?? "");
+      if (!path.trim()) return res.status(400).json({ error: "path required" });
+      res.json(await engine.setProtected(path, req.body?.protected === true));
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.get("/api/archive", (_req, res) => {
+    res.json(engine.archiveState());
+  });
+
+  app.put("/api/ignored", (req, res) => {
+    try {
+      const path = String(req.body?.path ?? "");
+      if (!path.trim()) return res.status(400).json({ error: "path required" });
+      res.json(engine.setIgnored(path, req.body?.ignored === true));
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.put("/api/archive", (req, res) => {
+    try {
+      const root = String(req.body?.root ?? "");
+      if (!root.trim()) return res.status(400).json({ error: "root required" });
+      res.json(engine.setArchiveRoot(root));
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.put("/api/archive/kinds", (req, res) => {
+    try {
+      const kind = req.body?.kind as "disk-images" | "installers" | "app-leftovers";
+      const path = String(req.body?.path ?? "");
+      if (kind !== "disk-images" && kind !== "installers" && kind !== "app-leftovers") {
+        return res.status(400).json({ error: "kind must be disk-images, installers, or app-leftovers" });
+      }
+      if (!path.trim()) return res.status(400).json({ error: "path required" });
+      res.json(engine.setKindFolder(kind, path));
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post("/api/scan-data", (req, res) => {
+    try {
+      engine.resolveScanWipe(req.body?.wipe === true);
+      res.json(engine.status());
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   app.post("/api/scans", (req, res) => {
@@ -36,6 +96,7 @@ export function buildApp(opts?: { rendererDir?: string }) {
         installerMinBytes: body.installerMinBytes,
         largeMinBytes: body.largeMinBytes,
         unusedDays: body.unusedDays,
+        leftoverMinBytes: body.leftoverMinBytes,
       });
       res.status(202).json(job);
     } catch (err) {
@@ -76,7 +137,9 @@ export function buildApp(opts?: { rendererDir?: string }) {
 
   app.post("/api/findings/:id/preview", (req, res) => {
     try {
-      res.json(engine.preview(req.params.id));
+      const action = req.body?.action as "recycle" | "archive" | "label" | "ignore" | undefined;
+      const archiveRoot = req.body?.archiveRoot ? String(req.body.archiveRoot) : undefined;
+      res.json(engine.preview(req.params.id, { action, archiveRoot }));
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }

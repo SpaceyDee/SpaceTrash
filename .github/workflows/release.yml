@@ -42,6 +42,8 @@ jobs:
           name: spacetrash-${{ matrix.artifact }}
           path: |
             dist/desktop/*.exe
+            dist/desktop/*.yml
+            dist/desktop/*.blockmap
             dist/desktop/*.dmg
             dist/desktop/*.zip
             dist/desktop/*.AppImage

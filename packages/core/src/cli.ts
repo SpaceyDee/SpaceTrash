@@ -14,6 +14,23 @@ program.command("volumes").action(async () => {
 });
 
 program
+  .command("protect")
+  .argument("<path>", "Drive or folder to treat as an archive")
+  .option("--off", "Remove protection")
+  .action(async (path: string, opts: { off?: boolean }) => {
+    console.log(JSON.stringify(await getEngine().setProtected(path, !opts.off), null, 2));
+  });
+
+program
+  .command("archive-root")
+  .argument("[path]", "Folder that will hold Disk images / Installers")
+  .action((path?: string) => {
+    const engine = getEngine();
+    if (path) console.log(JSON.stringify(engine.setArchiveRoot(path), null, 2));
+    else console.log(JSON.stringify(engine.archiveState(), null, 2));
+  });
+
+program
   .command("scan")
   .option("-r, --root <path>", "Scan root (repeatable)", (v: string, acc: string[]) => {
     acc.push(v);
@@ -22,13 +39,15 @@ program
   .option("--installer-min <bytes>", "Installer size floor", (v) => Number(v))
   .option("--large-min <bytes>", "Large-unused size floor", (v) => Number(v))
   .option("--unused-days <n>", "Unused age in days", (v) => Number(v))
-  .action(async (opts: { root: string[]; installerMin?: number; largeMin?: number; unusedDays?: number }) => {
+  .option("--leftover-min <bytes>", "Orphan app-folder size floor", (v) => Number(v))
+  .action(async (opts: { root: string[]; installerMin?: number; largeMin?: number; unusedDays?: number; leftoverMin?: number }) => {
     const engine = getEngine();
     const job = engine.startScan({
       roots: opts.root,
       installerMinBytes: opts.installerMin,
       largeMinBytes: opts.largeMin,
       unusedDays: opts.unusedDays,
+      leftoverMinBytes: opts.leftoverMin,
     });
     process.stdout.write(`scan ${job.id}\n`);
     for (;;) {

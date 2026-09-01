@@ -1,6 +1,6 @@
 {
   "name": "spacetrash",
-  "version": "0.1.0",
+  "version": "0.1.9",
   "private": true,
   "type": "module",
   "description": "Windows disk optimiser: scan, classify, confirm-to-act. Independent; Pulsar attaches via MCP.",
@@ -14,10 +14,10 @@
     "api": "npm run start -w @spacetrash/api",
     "mcp": "npm run start -w @spacetrash/mcp",
     "desktop": "npm run start -w @spacetrash/desktop",
-    "dist": "npm run dist:win -w @spacetrash/desktop && npm rebuild better-sqlite3",
-    "dist:win": "npm run dist:win -w @spacetrash/desktop && npm rebuild better-sqlite3",
-    "dist:mac": "npm run dist:mac -w @spacetrash/desktop && npm rebuild better-sqlite3",
-    "dist:linux": "npm run dist:linux -w @spacetrash/desktop && npm rebuild better-sqlite3",
+    "dist": "npm run dist:win -w @spacetrash/desktop",
+    "dist:win": "npm run dist:win -w @spacetrash/desktop",
+    "dist:mac": "npm run dist:mac -w @spacetrash/desktop",
+    "dist:linux": "npm run dist:linux -w @spacetrash/desktop",
     "cli": "npm run cli -w @spacetrash/core",
     "test": "npm run test -w @spacetrash/core"
   },

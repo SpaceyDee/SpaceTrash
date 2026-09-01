@@ -1,6 +1,8 @@
 # Public releases
 
-Installers are **not** stored in git (they are ~70 MB each). GitHub Releases is the distribution channel.
+Installers are **not** stored in git (they are ~70 MB each). **[GitHub Releases](https://github.com/SpaceyDee/SpaceTrash/releases/latest)** is the public download channel.
+
+Current shipped version: **0.1.9**.
 
 ## What a release contains
 
@@ -16,13 +18,13 @@ Mac and Linux packages are built by CI on tag. Windows can also be built on this
 
 ## Cut a release
 
-1. Bump `version` in the root and `packages/desktop` `package.json` files if needed.
-2. Commit and push `main`.
+1. Bump `version` in the root `package.json`, every `packages/*/package.json`, `package-lock.json`, and `packages/core/src/paths.ts` (`VERSION`).
+2. Merge to `main` and push.
 3. Tag and push:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.9
+git push origin v0.1.9
 ```
 
 4. GitHub Actions (`.github/workflows/release.yml`) builds all three OS installers and attaches them to the GitHub Release.
@@ -33,12 +35,38 @@ Manual Windows-only build:
 npm run dist:win
 ```
 
-Artifacts land in `dist/desktop/`.
+Artifacts land in `dist/desktop/` (gitignored).
 
-## Making the repo public
+## LAN auto-update (maintainer)
 
-On GitHub: **Settings → General → Danger zone → Change repository visibility → Public**.
+Packaged Windows builds check a private LAN feed (`http://192.168.0.100/spacetrash` unless `SPACETRASH_UPDATE_URL` is set). That feed is not a public service. Strangers should use GitHub Releases.
 
-The release assets stay attached after you flip visibility. Download links use the same URL:
+After `npm run dist:win`, with `PVE_PASS` set:
 
-`https://github.com/SpaceyDee/SpaceTrash/releases/latest`
+```bash
+python scripts/publish-update.py --setup
+```
+
+`--setup` is only needed the first time (nginx location + directory). Later publishes omit it.
+
+`scripts/pve-*.py` and `scripts/vnc-*.py` are lab helpers for a local Proxmox VM. They read `PVE_PASS` from the environment and must never print tickets or passwords.
+
+v0.1.0 installs do not contain the updater — install 0.1.1 once, then later versions can apply themselves.
+
+## What shipped
+
+From 0.1.9, folders that look like leftover apps are checked against installed programs and Start Menu / desktop shortcuts. Live install and AppData trees stay keep. Orphans get Ignore, Move into App leftovers, or Recycle, behind Confirm.
+
+From 0.1.8, leftover installers and disk images in your user profile are tidy-up (move to a labeled archive) or Recycle, both behind Confirm. A folder of 3+ similar files outside the profile can be labeled as an archive. Updates recommend clearing old scan data.
+
+From 0.1.7, each drive pinwheel has **Protect archive**: SpaceTrash still maps the disk, but will not recommend deleting anything on it. Toggle it on an existing scan to drop those findings without walking the drive again.
+
+From 0.1.6, a drive is never stored as its own parent, so incremental scans cannot loop until the worker runs out of memory and then report an empty “complete” result.
+
+From 0.1.5, drives and scan results are pinwheels: hover a slice to grow it, click a drive to include it, and a tracking bead shows scan progress.
+
+From 0.1.4, worker results are applied in short slices on the UI thread so the window stays responsive (and Stop works) while several drives write into SQLite at once.
+
+From 0.1.3, each selected drive is walked in its own worker thread so disks are scanned at the same time, and **Stop scan** cancels a run from the UI.
+
+From 0.1.2, a completed scan is remembered. The next scan of the same drive skips folders whose timestamps have not changed and only walks new or changed files. The first 0.1.2 launch also seeds that memory from the last completed 0.1.1 scan.

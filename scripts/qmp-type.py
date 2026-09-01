@@ -112,6 +112,14 @@ def main():
     if action == "shot":
         screenshot(sys.argv[2] if len(sys.argv) > 2 else "now")
         return
+    if action == "space":
+        q = Qmp(QMP)
+        q.sendkey("spc")
+        time.sleep(0.2)
+        q.sendkey("ret")
+        q.s.close()
+        print("space+enter sent")
+        return
     if action == "enter":
         q = Qmp(QMP)
         q.sendkey("ret")

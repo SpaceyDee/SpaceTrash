@@ -1,8 +1,8 @@
+import { dirname, join } from "node:path";
 import { homedir } from "node:os";
-import { join } from "node:path";
 import { mkdirSync } from "node:fs";
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.1.9";
 
 export function dataDir(): string {
   const override = process.env.SPACETRASH_DATA;
@@ -28,15 +28,21 @@ export function ensureDataDir(): string {
   return dir;
 }
 
-/** Forward-slash form for compares and SQL. */
+/** Forward-slash form for compares and SQL. Drive roots stay `G:/`. */
 export function toCanonical(p: string): string {
-  return p.replace(/\\/g, "/").replace(/\/+$/, "") || p;
+  const swapped = p.replace(/\\/g, "/");
+  const drive = swapped.match(/^([a-zA-Z]:)\/?$/);
+  if (drive) return `${drive[1]}/`;
+  return swapped.replace(/\/+$/, "") || swapped;
 }
 
-/** OS-native path for filesystem actions. */
+/** OS-native path for filesystem actions. Drive roots stay `G:\`. */
 export function toNative(p: string): string {
   const canon = toCanonical(p);
-  return process.platform === "win32" ? canon.replace(/\//g, "\\") : canon;
+  if (process.platform !== "win32") return canon;
+  const drive = canon.match(/^([a-zA-Z]:)\/$/);
+  if (drive) return `${drive[1]}\\`;
+  return canon.replace(/\//g, "\\");
 }
 
 export function normalizePath(p: string): string {
@@ -52,7 +58,16 @@ export function pathEquals(a: string, b: string): boolean {
 export function pathIsUnder(child: string, parent: string): boolean {
   const c = process.platform === "win32" ? toCanonical(child).toLowerCase() : toCanonical(child);
   const p = process.platform === "win32" ? toCanonical(parent).toLowerCase() : toCanonical(parent);
-  return c === p || c.startsWith(p + "/");
+  if (c === p) return true;
+  if (p.endsWith("/")) return c.startsWith(p);
+  return c.startsWith(p + "/");
+}
+
+export function parentPath(p: string): string {
+  const n = normalizePath(p);
+  const d = normalizePath(dirname(n));
+  if (!d || d === "." || pathEquals(d, n)) return "";
+  return d;
 }
 
 export function extOf(name: string): string {

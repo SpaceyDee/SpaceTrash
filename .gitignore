@@ -12,7 +12,13 @@ Thumbs.db
 .vscode/
 .idea/
 coverage/
+__pycache__/
+*.pyc
 fixtures/safe-scan-generated/
+fixtures/walk-generated/
+fixtures/ui-preview/
+fixtures/archive-tidy-generated/
+fixtures/app-leftover-generated/
 packages/desktop/build/
 scripts/*.ppm
 scripts/*.png

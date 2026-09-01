@@ -11,15 +11,19 @@ async function apiGet(path: string): Promise<unknown> {
   return text ? JSON.parse(text) : null;
 }
 
-async function apiPost(path: string, body?: unknown): Promise<unknown> {
+async function apiSend(method: string, path: string, body?: unknown): Promise<unknown> {
   const res = await fetch(`${BASE}${path}`, {
-    method: "POST",
+    method,
     headers: { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await res.text();
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${text}`);
   return text ? JSON.parse(text) : null;
+}
+
+async function apiPost(path: string, body?: unknown): Promise<unknown> {
+  return apiSend("POST", path, body);
 }
 
 function ok(data: unknown) {
@@ -31,7 +35,7 @@ function fail(err: unknown) {
   return { content: [{ type: "text" as const, text: message }], isError: true as const };
 }
 
-const server = new McpServer({ name: "spacetrash", version: "0.1.0" });
+const server = new McpServer({ name: "spacetrash", version: "0.1.9" });
 
 server.tool("spacetrash_status", "SpaceTrash engine status: version, data dir, active scan", {}, async () => {
   try {
@@ -48,6 +52,59 @@ server.tool("spacetrash_list_volumes", "List fixed and other volumes SpaceTrash 
     return fail(err);
   }
 });
+
+server.tool(
+  "spacetrash_protect_root",
+  "Mark a drive or folder as a protected archive: still scanned, never recommended for delete. Set protected=false to undo.",
+  {
+    path: z.string().describe("Absolute path of the drive or folder, e.g. \"E:\\\\\""),
+    protected: z.boolean().describe("true to protect, false to allow recommendations again"),
+  },
+  async (args) => {
+    try {
+      return ok(await apiSend("PUT", "/api/protected", args));
+    } catch (err) {
+      return fail(err);
+    }
+  },
+);
+
+server.tool(
+  "spacetrash_ignore_path",
+  "Ignore or un-ignore a leftover app folder so SpaceTrash stops (or resumes) flagging it. Does not Protect the path from other rules.",
+  {
+    path: z.string().describe("Absolute folder path"),
+    ignored: z.boolean().describe("true to ignore, false to flag it again"),
+  },
+  async (args) => {
+    try {
+      return ok(await apiSend("PUT", "/api/ignored", args));
+    } catch (err) {
+      return fail(err);
+    }
+  },
+);
+
+server.tool("spacetrash_archive_state", "Archive root, labeled kind folders, and ignored leftover paths", {}, async () => {
+  try {
+    return ok(await apiGet("/api/archive"));
+  } catch (err) {
+    return fail(err);
+  }
+});
+
+server.tool(
+  "spacetrash_set_archive_root",
+  "Set the archive root (not inside the user profile). SpaceTrash can create Disk images / Installers / App leftovers folders here.",
+  { root: z.string().describe("Absolute folder or drive, e.g. \"G:\\\\\"") },
+  async (args) => {
+    try {
+      return ok(await apiSend("PUT", "/api/archive", args));
+    } catch (err) {
+      return fail(err);
+    }
+  },
+);
 
 server.tool(
   "spacetrash_start_scan",
@@ -113,10 +170,16 @@ server.tool(
 server.tool(
   "spacetrash_preview_action",
   "Preview a finding action and receive a one-time confirm token. Does not delete or move files.",
-  { findingId: z.string() },
-  async ({ findingId }) => {
+  {
+    findingId: z.string(),
+    action: z.enum(["recycle", "archive", "label", "ignore"]).optional(),
+    archiveRoot: z.string().optional(),
+  },
+  async ({ findingId, action, archiveRoot }) => {
     try {
-      return ok(await apiPost(`/api/findings/${encodeURIComponent(findingId)}/preview`));
+      return ok(
+        await apiPost(`/api/findings/${encodeURIComponent(findingId)}/preview`, { action, archiveRoot }),
+      );
     } catch (err) {
       return fail(err);
     }
@@ -125,7 +188,7 @@ server.tool(
 
 server.tool(
   "spacetrash_apply_action",
-  "Apply a previously previewed action. Requires the preview token and confirm=true. Recycle only; archive is preview-only in v1.",
+  "Apply a previously previewed action. Requires the preview token and confirm=true. Recycle, ignore a leftover app folder, label an archive folder, or move leftovers into Disk images / Installers / App leftovers.",
   {
     token: z.string().describe("Token from spacetrash_preview_action"),
     confirm: z.literal(true).describe("Must be true. Apply is rejected without it."),

@@ -98,7 +98,7 @@ export function isDeniedForScan(fullPath: string, name?: string): boolean {
 /** Paths we must never recycle or move. */
 export function isDeniedForAction(fullPath: string): boolean {
   const p = toCanonical(fullPath);
-  if (/^[a-z]:$/i.test(p)) return true;
+  if (/^[a-z]:\/?$/i.test(p)) return true;
   if (p === "/" || p === "") return true;
   if (isDeniedForScan(fullPath)) return true;
 
